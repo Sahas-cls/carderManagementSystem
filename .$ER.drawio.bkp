@@ -1,0 +1,34 @@
+<mxfile host="Electron">
+  <diagram name="Page-1" id="2HbQSb3tMd0wQpS9dv1V">
+    <mxGraphModel dx="1030" dy="626" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="P6XlXTzLuj3p7m-z9Ou--1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="Factory" vertex="1">
+          <mxGeometry height="60" width="120" x="120" y="400" as="geometry" />
+        </mxCell>
+        <mxCell id="P6XlXTzLuj3p7m-z9Ou--2" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="Week" vertex="1">
+          <mxGeometry height="60" width="120" x="600" y="400" as="geometry" />
+        </mxCell>
+        <mxCell id="P6XlXTzLuj3p7m-z9Ou--3" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="PlannedCarder" vertex="1">
+          <mxGeometry height="60" width="120" x="399" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="P6XlXTzLuj3p7m-z9Ou--4" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="ActualCarder" vertex="1">
+          <mxGeometry height="60" width="120" x="600" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="P6XlXTzLuj3p7m-z9Ou--5" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="ShortageCarder" vertex="1">
+          <mxGeometry height="60" width="120" x="801" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="P6XlXTzLuj3p7m-z9Ou--6" parent="1" style="rounded=0;whiteSpace=wrap;html=1;direction=west;" value="PlannedCarder" vertex="1">
+          <mxGeometry height="60" width="120" x="399" y="540" as="geometry" />
+        </mxCell>
+        <mxCell id="P6XlXTzLuj3p7m-z9Ou--7" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="ActualCarder" vertex="1">
+          <mxGeometry height="60" width="120" x="600" y="540" as="geometry" />
+        </mxCell>
+        <mxCell id="P6XlXTzLuj3p7m-z9Ou--8" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="ShortageCarder" vertex="1">
+          <mxGeometry height="60" width="120" x="801" y="540" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
