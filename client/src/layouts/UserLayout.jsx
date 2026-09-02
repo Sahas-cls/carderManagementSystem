@@ -6,6 +6,7 @@ const PAGE_META = {
   "/": { title: "Dashboard", subtitle: "Workforce overview and cadre monitoring" },
   "/daily-entry": { title: "Daily Data Entry", subtitle: "Enter and manage daily cadre records" },
   "/weekly-view": { title: "Weekly Data View", subtitle: "Automatically updated weekly workforce records" },
+  "/manage-users": { title: "Manage Users", subtitle: "Activate accounts and review roles" },
 };
 
 /** App shell: sidebar + header + routed page content. */

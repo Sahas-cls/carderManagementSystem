@@ -90,6 +90,10 @@ export default function DailyRecordsTable({ records, onEdit, onDelete }) {
               <th className={TH}>Planned</th>
               <th className={TH}>Allocated</th>
               <th className={TH}>Recruit.</th>
+              {/* TRAINING CENTER COLS  */}
+              <th className={TH}>Planned</th>
+              <th className={TH}>Allocated</th>
+              <th className={TH}>Recruit</th>
               <th className={TH}>Resigned</th>
               <th className={TH}>Transfer to Pro Line</th>
               <th className={TH}>Actual Allocated</th>
@@ -100,13 +104,20 @@ export default function DailyRecordsTable({ records, onEdit, onDelete }) {
           <tbody>
             {records.length === 0 ? (
               <tr>
-                <td colSpan={37} className="p-8 text-center text-slate-400 border border-slate-400">
-                  No records yet. Select a factory and enter the cadre details above.
+                <td
+                  colSpan={37}
+                  className="p-8 text-center text-slate-400 border border-slate-400"
+                >
+                  No records yet. Select a factory and enter the cadre details
+                  above.
                 </td>
               </tr>
             ) : (
-              records.map((r, i) => (
-                <tr key={i} className="bg-white hover:bg-sky-50 text-center">
+              records.map((r) => (
+                <tr
+                  key={r.batchId}
+                  className="bg-white hover:bg-sky-50 text-center"
+                >
                   <td className={TD}>{r.date || "-"}</td>
                   <td className={TD}>{r.week || "-"}</td>
                   <td className={TD}>{r.pmo}</td>
@@ -146,10 +157,14 @@ export default function DailyRecordsTable({ records, onEdit, onDelete }) {
                   <td className={`${TD} font-bold`}>{r.tcpresent}</td>
                   <td className={TD}>
                     <div className="flex gap-1.5 justify-center">
-                      <Button variant="edit" small onClick={() => onEdit(i)}>
+                      <Button variant="edit" small onClick={() => onEdit(r)}>
                         Edit
                       </Button>
-                      <Button variant="delete" small onClick={() => onDelete(i)}>
+                      <Button
+                        variant="delete"
+                        small
+                        onClick={() => onDelete(r)}
+                      >
                         Delete
                       </Button>
                     </div>

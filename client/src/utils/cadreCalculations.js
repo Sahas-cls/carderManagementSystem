@@ -1,12 +1,24 @@
-import { WEEK_RANGES } from "../constants/cadre";
-
 // Never let a derived value go negative - mirrors the original app's num().
 const n = (v) => Math.max(0, Number(v) || 0);
 
+function addDaysToDateStr(dateStr, days) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Today's date as yyyy-mm-dd, in the browser's local timezone (not UTC - avoids an off-by-one for the date picker's default value). */
+export function todayDateStr() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export const EMPTY_CADRE_FORM = {
-  factory: "",
+  factoryId: "",
   date: "",
-  week: "",
   plannedMO: 0,
   plannedTMO: 0,
   allocActualMO: "",
@@ -24,6 +36,11 @@ export const EMPTY_CADRE_FORM = {
   tcTransfer: 0,
   tcActual: 0,
   tcAbsent: 0,
+  // How tcTransfer currently splits between MO and TMO (set via the Transfer
+  // to Pro Line popup in CadreDetailsCard.jsx) - persisted so re-opening a
+  // saved record for editing recovers the exact split, not just the totals.
+  transferMO: 0,
+  transferTMO: 0,
 };
 
 /**
@@ -93,56 +110,47 @@ export function computeTotals(form) {
   };
 }
 
-/** Build the saved-record shape (short keys) from the form + its totals. */
-export function buildRecord(form, totals) {
-  return {
-    factory: form.factory,
+/**
+ * Builds the API payload from the form's raw inputs (the backend recomputes
+ * every derived MO/TMO/total itself - see dailyCadreService.computeDerived).
+ * allocActualMO/TMO are left out entirely when untouched, so the backend can
+ * tell "left blank" apart from "entered as 0" for the Shortage calculation.
+ *
+ * plannedMO/plannedTMO are deliberately NOT sent - they mirror Budget Master
+ * (see useActiveBudget), not something typed into this form, so the backend
+ * resolves them itself from whichever Budget is active for the factory
+ * (dailyCadreService.resolvePlannedCounts) rather than trusting this copy.
+ */
+export function buildPayload(form) {
+  const payload = {
+    factoryId: Number(form.factoryId),
     date: form.date,
-    week: form.week,
-    pmo: n(form.plannedMO),
-    ptmo: n(form.plannedTMO),
-    pt: totals.plannedTotal,
-    amo: n(form.allocActualMO),
-    atmo: n(form.allocActualTMO),
-    at: totals.allocActualTotal,
-    smo: totals.shortageMO,
-    stmo: totals.shortageTMO,
-    st: totals.shortageTotal,
-    nmo: n(form.newRecMO),
-    ntmo: n(form.newRecTMO),
-    nt: totals.newRecTotal,
-    rmo: n(form.resignedMO),
-    rtmo: n(form.resignedTMO),
-    rt: totals.resignedTotal,
-    netmo: totals.netMO,
-    netto: totals.netTMO,
-    nett: totals.netTotal,
-    cmo: totals.currentMO,
-    ctmo: totals.currentTMO,
-    ct: totals.currentTotal,
-    abmo: n(form.absentMO),
-    abtmo: n(form.absentTMO),
-    abt: totals.absentTotal,
-    prmo: totals.presentMO,
-    prtmo: totals.presentTMO,
-    prt: totals.presentTotal,
-    tcp: n(form.tcPlanned),
-    tca: n(form.tcAllocated),
-    tcr: n(form.tcRecruit),
-    tcs: n(form.tcResigned),
-    tct: n(form.tcTransfer),
-    tactual: n(form.tcActual),
-    tcab: n(form.tcAbsent),
-    tcpresent: totals.tcPresent,
+    newRecMO: n(form.newRecMO),
+    newRecTMO: n(form.newRecTMO),
+    resignedMO: n(form.resignedMO),
+    resignedTMO: n(form.resignedTMO),
+    absentMO: n(form.absentMO),
+    absentTMO: n(form.absentTMO),
+    tcPlanned: n(form.tcPlanned),
+    tcAllocated: n(form.tcAllocated),
+    tcRecruit: n(form.tcRecruit),
+    tcResigned: n(form.tcResigned),
+    tcTransfer: n(form.tcTransfer),
+    tcActual: n(form.tcActual),
+    tcAbsent: n(form.tcAbsent),
+    transferMO: n(form.transferMO),
+    transferTMO: n(form.transferTMO),
   };
+  if (form.allocActualMO !== "") payload.allocActualMO = n(form.allocActualMO);
+  if (form.allocActualTMO !== "") payload.allocActualTMO = n(form.allocActualTMO);
+  return payload;
 }
 
-/** Reverse of buildRecord - used to load a saved record back into the form for editing. */
+/** Reverse of buildPayload - used to load a saved record back into the form for editing. */
 export function recordToForm(record) {
   return {
-    factory: record.factory || "",
+    factoryId: record.factoryId ?? "",
     date: record.date || "",
-    week: record.week || "",
     plannedMO: record.pmo || 0,
     plannedTMO: record.ptmo || 0,
     allocActualMO: record.amo ?? 0,
@@ -160,11 +168,17 @@ export function recordToForm(record) {
     tcTransfer: record.tct || 0,
     tcActual: record.tactual || 0,
     tcAbsent: record.tcab || 0,
+    transferMO: record.transferMO || 0,
+    transferTMO: record.transferTMO || 0,
   };
 }
 
-/** Look up the week label whose date range contains the given yyyy-mm-dd date string. */
-export function matchWeekForDate(dateStr) {
-  const match = WEEK_RANGES.find(([start, end]) => dateStr >= start && dateStr <= end);
-  return match ? match[2] : "";
+/**
+ * Finds the Week (as configured in Week Master) whose 7-day range contains
+ * the given yyyy-mm-dd date string. `weeks` is the list from GET /api/weeks
+ * ({ id, week }). This is only a client-side preview - the backend resolves
+ * the same way and is authoritative (see server/src/services/dailyCadreService.js).
+ */
+export function matchWeekForDate(dateStr, weeks) {
+  return weeks.find((w) => dateStr >= w.week && dateStr <= addDaysToDateStr(w.week, 6)) || null;
 }
