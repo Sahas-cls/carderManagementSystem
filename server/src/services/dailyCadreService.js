@@ -20,12 +20,15 @@ const {
 } = require("../../models");
 const ApiError = require("../utils/ApiError");
 const { formatWeekLabel, addDays } = require("../utils/weekLabel");
+const employeeService = require("./employeeService");
 
 // Never let a raw input go negative - mirrors client/src/utils/cadreCalculations.js's n().
 const n = (v) => Math.max(0, Number(v) || 0);
 
+// PlannedCarder is deliberately NOT in here - unlike these, it doesn't store
+// MO/TMO/total directly (see the model). It's created/updated/destroyed
+// alongside these, just via its own budgetId-based calls.
 const CARDER_MODELS = {
-  planned: PlannedCarder,
   allocActual: AllocatedActualCarder,
   shortage: ShortageCarder,
   newRec: NewRecruitCarder,
@@ -53,6 +56,7 @@ async function findWeekForDate(date, transaction) {
 async function resolvePlannedCounts(factoryId, transaction) {
   const activeBudget = await Budget.findOne({ where: { factoryId, status: true }, transaction });
   return {
+    budgetId: activeBudget?.id ?? null,
     plannedMO: activeBudget?.moCount ?? 0,
     plannedTMO: activeBudget?.tmoCount ?? 0,
   };
@@ -108,7 +112,11 @@ function computeDerived(payload) {
   const tcRecruit = n(payload.tcRecruit);
   const tcResigned = n(payload.tcResigned);
   const tcTransfer = n(payload.tcTransfer);
-  const tcActual = n(payload.tcActual);
+  // Actual Allocated is derived, never trusted from the client (same reason
+  // as plannedMO/TMO) - opening balance (tcAllocated, itself carried over
+  // from the previous entry's Actual Allocated - see getPreviousDailyRecord)
+  // plus new recruits, minus resigned/transferred out.
+  const tcActual = Math.max(0, tcAllocated + tcRecruit - (tcResigned + tcTransfer));
   const tcAbsent = n(payload.tcAbsent);
   const tcPresent = Math.max(0, tcActual - tcAbsent);
   // How tcTransfer currently splits between MO and TMO (see TransferModal in
@@ -161,7 +169,6 @@ function computeDerived(payload) {
 /** Row values (per carder table) derived from computeDerived()'s output. */
 function rowsFor(d) {
   return {
-    planned: { MO: d.pmo, TMO: d.ptmo, total: d.plannedTotal },
     allocActual: { MO: d.amo, TMO: d.atmo, total: d.allocActualTotal },
     shortage: { MO: d.shortageMO, TMO: d.shortageTMO, total: d.shortageTotal },
     newRec: { MO: d.nmo, TMO: d.ntmo, total: d.newRecTotal },
@@ -173,11 +180,26 @@ function rowsFor(d) {
   };
 }
 
-function buildFlatRecord({ batchId, date, week, factory, d, createdAt }) {
+function buildFlatRecord({ batchId, date, week, factory, d, createdAt, resignedEmployees = [] }) {
   return {
     batchId,
     date,
     createdAt,
+    // Resigned/Terminated employee details captured via the popup (see
+    // CadreDetailsCard.jsx's ResignedEmployeesModal) - reloaded on edit so
+    // the popup can be repopulated instead of asking the user to re-enter
+    // them from scratch.
+    resignedEmployees: resignedEmployees.map((e) => ({
+      epf: e.epf,
+      employeeName: e.employeeName,
+      designationId: e.designationId,
+      departmentId: e.departmentId,
+      sectionId: e.sectionId,
+      dateOfJoin: e.dateOfJoin,
+      dateOfResign: e.dateOfResign,
+      resignationReasonId: e.resignationReasonId,
+      isMo: e.isMo,
+    })),
     week: week ? formatWeekLabel(week.week) : "-",
     weekId: week ? week.id : null,
     factory: factory ? factory.factoryName : "Unknown Factory",
@@ -228,6 +250,38 @@ async function assertFactoryExists(factoryId, transaction) {
   return factory;
 }
 
+/**
+ * The most recent Daily Data Entry batch for a factory strictly before
+ * `beforeDate` (whatever date that was - factories don't necessarily log an
+ * entry every day), used to carry values into a fresh Daily Data Entry form
+ * (see DailyEntryPage.jsx's prefill effect):
+ *  - Allocated_Actual MO/TMO default to that batch's Allocated_Current MO/TMO.
+ *  - Training Center's Allocated defaults to that batch's Actual Allocated.
+ * PlannedCarder is queried first (every batch has exactly one row there) so
+ * both other tables are read from that one canonical batchId, rather than
+ * each independently picking "latest date" and risking two different
+ * batches on a day with more than one entry.
+ */
+async function getPreviousDailyRecord({ factoryId, beforeDate }) {
+  const latestBatch = await PlannedCarder.findOne({
+    where: { factoryId, date: { [Op.lt]: beforeDate } },
+    order: [["date", "DESC"], ["createdAt", "DESC"]],
+  });
+  if (!latestBatch) return null;
+
+  const [currentRow, tcRow] = await Promise.all([
+    AllocatedCurrentCarder.findOne({ where: { batchId: latestBatch.batchId } }),
+    TrainingCenter.findOne({ where: { batchId: latestBatch.batchId } }),
+  ]);
+
+  return {
+    date: latestBatch.date,
+    currentMO: currentRow?.MO ?? 0,
+    currentTMO: currentRow?.TMO ?? 0,
+    tcActual: tcRow?.actualAllocated ?? 0,
+  };
+}
+
 /** Creates a new Daily Data Entry record (always inserts - a factory may log several entries for the same date). */
 async function createDailyRecord(payload) {
   const { factoryId, date } = payload;
@@ -251,6 +305,7 @@ async function createDailyRecord(payload) {
     for (const [key, Model] of Object.entries(CARDER_MODELS)) {
       await Model.create({ ...base, ...rows[key] }, { transaction });
     }
+    await PlannedCarder.create({ ...base, budgetId: plannedCounts.budgetId }, { transaction });
     const tc = await TrainingCenter.create(
       {
         ...base,
@@ -268,7 +323,17 @@ async function createDailyRecord(payload) {
       { transaction }
     );
 
-    return buildFlatRecord({ batchId, date, week, factory, d, createdAt: tc.createdAt });
+    await employeeService.syncResignedEmployees(payload.resignedEmployees, batchId, transaction);
+
+    return buildFlatRecord({
+      batchId,
+      date,
+      week,
+      factory,
+      d,
+      createdAt: tc.createdAt,
+      resignedEmployees: payload.resignedEmployees,
+    });
   });
 }
 
@@ -299,6 +364,10 @@ async function updateDailyRecord(batchId, payload) {
     for (const [key, Model] of Object.entries(CARDER_MODELS)) {
       await Model.update({ ...base, ...rows[key] }, { where: { batchId }, transaction });
     }
+    await PlannedCarder.update(
+      { ...base, budgetId: plannedCounts.budgetId },
+      { where: { batchId }, transaction }
+    );
     await TrainingCenter.update(
       {
         ...base,
@@ -316,7 +385,17 @@ async function updateDailyRecord(batchId, payload) {
       { where: { batchId }, transaction }
     );
 
-    return buildFlatRecord({ batchId, date, week, factory, d, createdAt: existing.createdAt });
+    await employeeService.syncResignedEmployees(payload.resignedEmployees, batchId, transaction);
+
+    return buildFlatRecord({
+      batchId,
+      date,
+      week,
+      factory,
+      d,
+      createdAt: existing.createdAt,
+      resignedEmployees: payload.resignedEmployees,
+    });
   });
 }
 
@@ -330,7 +409,9 @@ async function deleteDailyRecord(batchId) {
     for (const Model of Object.values(CARDER_MODELS)) {
       await Model.destroy({ where: { batchId }, transaction });
     }
+    await PlannedCarder.destroy({ where: { batchId }, transaction });
     await TrainingCenter.destroy({ where: { batchId }, transaction });
+    await employeeService.unlinkBatch(batchId, transaction);
   });
 }
 
@@ -348,9 +429,13 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
   const where = { date: { [Op.between]: [monthStart, monthEnd] } };
   if (factoryId) where.factoryId = factoryId;
 
-  const [weeks, factories, ...tableRows] = await Promise.all([
+  const [weeks, factories, plannedRows, ...tableRows] = await Promise.all([
     Week.findAll({ attributes: ["id", "week"] }),
     Factory.findAll({ attributes: ["id", "factoryName"] }),
+    // Budgets are soft-deleted (paranoid), not hard-deleted - a daily record
+    // from before its budget was later deleted should still show the
+    // MO/TMO it pointed to, so this include bypasses the paranoid default.
+    PlannedCarder.findAll({ where, include: [{ model: Budget, as: "budget", paranoid: false }] }),
     ...Object.values(CARDER_MODELS).map((Model) => Model.findAll({ where })),
     TrainingCenter.findAll({ where }),
   ]);
@@ -361,7 +446,7 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
   const carderRowsByKey = Object.fromEntries(keys.map((key, i) => [key, tableRows[i]]));
   const tcRows = tableRows[keys.length];
 
-  const batches = new Map(); // batchId -> { date, weekId, factoryId, createdAt, rows: { planned: row, ... }, tc: row }
+  const batches = new Map(); // batchId -> { date, weekId, factoryId, createdAt, planned: row, rows: { allocActual: row, ... }, tc: row }
 
   const getBatch = (row) => {
     if (!batches.has(row.batchId)) {
@@ -370,6 +455,7 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
         weekId: row.weekId,
         factoryId: row.factoryId,
         createdAt: row.createdAt,
+        planned: null,
         rows: {},
         tc: null,
       });
@@ -377,6 +463,9 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
     return batches.get(row.batchId);
   };
 
+  plannedRows.forEach((row) => {
+    getBatch(row).planned = row;
+  });
   keys.forEach((key) => {
     carderRowsByKey[key].forEach((row) => {
       getBatch(row).rows[key] = row;
@@ -386,11 +475,20 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
     getBatch(row).tc = row;
   });
 
+  const employeeRows = await employeeService.listByBatchIds([...batches.keys()]);
+  const employeesByBatch = new Map();
+  employeeRows.forEach((row) => {
+    if (!employeesByBatch.has(row.batchId)) employeesByBatch.set(row.batchId, []);
+    employeesByBatch.get(row.batchId).push(row);
+  });
+
   const records = [...batches.entries()].map(([batchId, batch]) => {
+    const pmo = batch.planned?.budget?.moCount ?? 0;
+    const ptmo = batch.planned?.budget?.tmoCount ?? 0;
     const d = {
-      pmo: batch.rows.planned?.MO ?? 0,
-      ptmo: batch.rows.planned?.TMO ?? 0,
-      plannedTotal: batch.rows.planned?.total ?? 0,
+      pmo,
+      ptmo,
+      plannedTotal: pmo + ptmo,
       amo: batch.rows.allocActual?.MO ?? 0,
       atmo: batch.rows.allocActual?.TMO ?? 0,
       allocActualTotal: batch.rows.allocActual?.total ?? 0,
@@ -434,6 +532,7 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
       factory: factoryMap.get(batch.factoryId),
       d,
       createdAt: batch.createdAt,
+      resignedEmployees: employeesByBatch.get(batchId) || [],
     });
   });
 
@@ -441,4 +540,130 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
   return records;
 }
 
-module.exports = { createDailyRecord, updateDailyRecord, deleteDailyRecord, listDailyRecords, findWeekForDate };
+/**
+ * Group-wide + per-factory yearly trend, one point per month - backs the
+ * "Cadre Trend", "Recruitment & Resign", "LTO Ratio" and "Absenteeism"
+ * dashboard charts, which the HR Performance Analysis report keeps as
+ * separate sheets but which all read the same daily records over the same
+ * year, so one query does all four:
+ *  - budget/allocated mirror "Cadre Trend" (AVERAGE CADRE STATUS TREND_MO
+ *    & TMO): Budget is resolved the same way Daily Data Entry does
+ *    (whichever Budget was active for the factory on each day, via
+ *    PlannedCarder's budget join); Allocated is the Allocated Actual total
+ *    entered that day. Both are *averaged* across every daily entry within
+ *    the month, matching the sheet's "AVERAGE".
+ *  - recruitment/resigned mirror "FACTORY WISE RECRUITMENT & RESIGN TREND":
+ *    each daily entry's New Recruit / Resigned total is a count of people
+ *    that day, so these are *summed* (not averaged) across the month.
+ *  - absent mirrors the "Absenteeism" sheet's per-month Absenteeism count -
+ *    a daily attendance snapshot like Allocated, so it's *averaged* (not
+ *    summed) across the month the same way; the sheet's Absenteeism Rate
+ *    (Absenteeism / Allocated Cadre) is left for the caller to derive from
+ *    absent/allocated, same as LTO Ratio already derives from resigned/
+ *    allocated.
+ * Every figure is then summed across factories for the Group line, the
+ * same way the workbook's Group row is the sum of its factory rows. A
+ * month with no daily entries yet reports zero for all five.
+ */
+async function getCadreTrend({ year, factoryId } = {}) {
+  const y = year || new Date().getFullYear();
+  const yearStart = `${y}-01-01`;
+  const yearEnd = `${y}-12-31`;
+  const where = { date: { [Op.between]: [yearStart, yearEnd] } };
+  if (factoryId) where.factoryId = factoryId;
+
+  const [factories, plannedRows, allocatedRows, newRecRows, resignedRows, absentRows] = await Promise.all([
+    Factory.findAll({ attributes: ["id", "factoryName"] }),
+    // Budgets are soft-deleted (paranoid) - see listDailyRecords for why
+    // this include bypasses that default.
+    PlannedCarder.findAll({ where, include: [{ model: Budget, as: "budget", paranoid: false }] }),
+    AllocatedActualCarder.findAll({ where }),
+    NewRecruitCarder.findAll({ where }),
+    ResignedCarder.findAll({ where }),
+    AbsenteeismCarder.findAll({ where }),
+  ]);
+
+  const monthKey = (date) => date.slice(0, 7); // "YYYY-MM"
+  const months = Array.from({ length: 12 }, (_, i) => `${y}-${String(i + 1).padStart(2, "0")}`);
+
+  // factoryId -> month -> running sums, averaged/totalled once every row is in.
+  const perFactory = new Map();
+  const bucket = (fid, month) => {
+    if (!perFactory.has(fid)) perFactory.set(fid, new Map());
+    const byMonth = perFactory.get(fid);
+    if (!byMonth.has(month)) {
+      byMonth.set(month, {
+        budgetSum: 0,
+        budgetCount: 0,
+        allocSum: 0,
+        allocCount: 0,
+        recruitment: 0,
+        resigned: 0,
+        absentSum: 0,
+        absentCount: 0,
+      });
+    }
+    return byMonth.get(month);
+  };
+
+  plannedRows.forEach((row) => {
+    const budget = (row.budget?.moCount ?? 0) + (row.budget?.tmoCount ?? 0);
+    const b = bucket(row.factoryId, monthKey(row.date));
+    b.budgetSum += budget;
+    b.budgetCount += 1;
+  });
+  allocatedRows.forEach((row) => {
+    const b = bucket(row.factoryId, monthKey(row.date));
+    b.allocSum += row.total;
+    b.allocCount += 1;
+  });
+  newRecRows.forEach((row) => {
+    bucket(row.factoryId, monthKey(row.date)).recruitment += row.total;
+  });
+  resignedRows.forEach((row) => {
+    bucket(row.factoryId, monthKey(row.date)).resigned += row.total;
+  });
+  absentRows.forEach((row) => {
+    const b = bucket(row.factoryId, monthKey(row.date));
+    b.absentSum += row.total;
+    b.absentCount += 1;
+  });
+
+  const factoryMap = new Map(factories.map((f) => [f.id, f]));
+  const byFactory = [...perFactory.entries()].map(([fid, byMonth]) => ({
+    factoryId: fid,
+    factory: factoryMap.get(fid)?.factoryName || "Unknown Factory",
+    months: months.map((m) => {
+      const b = byMonth.get(m);
+      return {
+        month: m,
+        budget: b && b.budgetCount ? Math.round(b.budgetSum / b.budgetCount) : 0,
+        allocated: b && b.allocCount ? Math.round(b.allocSum / b.allocCount) : 0,
+        recruitment: b?.recruitment ?? 0,
+        resigned: b?.resigned ?? 0,
+        absent: b && b.absentCount ? Math.round(b.absentSum / b.absentCount) : 0,
+      };
+    }),
+  }));
+
+  const group = months.map((m, i) => ({
+    month: m,
+    budget: byFactory.reduce((sum, f) => sum + f.months[i].budget, 0),
+    allocated: byFactory.reduce((sum, f) => sum + f.months[i].allocated, 0),
+    recruitment: byFactory.reduce((sum, f) => sum + f.months[i].recruitment, 0),
+    resigned: byFactory.reduce((sum, f) => sum + f.months[i].resigned, 0),
+    absent: byFactory.reduce((sum, f) => sum + f.months[i].absent, 0),
+  }));
+
+  return { year: y, group, byFactory };
+}
+
+module.exports = {
+  createDailyRecord,
+  updateDailyRecord,
+  deleteDailyRecord,
+  listDailyRecords,
+  findWeekForDate,
+  getCadreTrend,
+  getPreviousDailyRecord,
+};

@@ -3,6 +3,7 @@ import Card from "../../../components/ui/Card";
 import CadreGroup from "./CadreGroup";
 import GroupField from "./GroupField";
 import Button from "../../../components/ui/Button";
+import ResignedEmployeesModal from "./ResignedEmployeesModal";
 
 // Modal component
 function TransferModal({
@@ -140,6 +141,7 @@ function TransferModal({
               placeholder="Enter MO count"
               value={localData.moCount}
               onChange={(e) => handleChange("moCount", e.target.value)}
+              onWheel={(e) => e.target.blur()}
             />
           </div>
 
@@ -154,6 +156,7 @@ function TransferModal({
               placeholder="Enter TMO count"
               value={localData.tmoCount}
               onChange={(e) => handleChange("tmoCount", e.target.value)}
+              onWheel={(e) => e.target.blur()}
             />
           </div>
 
@@ -168,6 +171,7 @@ function TransferModal({
               placeholder="Total"
               value={localData.total}
               readOnly
+              onWheel={(e) => e.target.blur()}
             />
             <p className="text-xs text-gray-500 mt-1">
               Total is auto-calculated from MO + TMO
@@ -202,6 +206,7 @@ export default function CadreDetailsCard({
 }) {
   const setField = (field) => (e) => onChange(field, e.target.value);
   const [showPopup, setShowPopup] = useState(false);
+  const [showResignedPopup, setShowResignedPopup] = useState(false);
 
   // The "New Recr. MO_/Rejoined MO_TMO" total is always base (regular
   // recruitment/rejoin activity) + whatever the TC transfer currently
@@ -259,6 +264,23 @@ export default function CadreDetailsCard({
     onChange("transferTMO", tmo.toString());
   };
 
+  // Handle blur on the Resigned/Terminated MO/TMO fields - opens the popup
+  // whenever the combined count doesn't match how many employee rows are
+  // already on file for this record (a fresh count, or the user changed it
+  // after already filling the popup in once).
+  const resignedMO = parseInt(form.resignedMO) || 0;
+  const resignedTMO = parseInt(form.resignedTMO) || 0;
+  const resignedTotal = resignedMO + resignedTMO;
+  const resignedEmployees = form.resignedEmployees || [];
+
+  const handleResignedBlur = () => {
+    if (resignedTotal > 0 && resignedEmployees.length !== resignedTotal) {
+      setShowResignedPopup(true);
+    } else if (resignedTotal === 0 && resignedEmployees.length > 0) {
+      onChange("resignedEmployees", []);
+    }
+  };
+
   return (
     <>
       <TransferModal
@@ -276,6 +298,17 @@ export default function CadreDetailsCard({
         onSave={handleSaveModal}
         tcTransferCount={form.tcTransfer}
         hasExistingTransfer={hasExistingTransfer}
+      />
+
+      <ResignedEmployeesModal
+        isOpen={showResignedPopup}
+        onClose={() => setShowResignedPopup(false)}
+        initialEmployees={resignedEmployees}
+        rmo={resignedMO}
+        rtmo={resignedTMO}
+        factoryId={form.factoryId}
+        entryDate={form.date}
+        onSave={(rows) => onChange("resignedEmployees", rows)}
       />
 
       <Card title="Cadre / Recruitment Details">
@@ -391,6 +424,7 @@ export default function CadreDetailsCard({
               min="0"
               value={form.resignedMO}
               onChange={setField("resignedMO")}
+              onBlur={handleResignedBlur}
             />
             <GroupField
               label="TMO"
@@ -398,6 +432,7 @@ export default function CadreDetailsCard({
               min="0"
               value={form.resignedTMO}
               onChange={setField("resignedTMO")}
+              onBlur={handleResignedBlur}
             />
             <GroupField
               label="Total"
@@ -513,10 +548,9 @@ export default function CadreDetailsCard({
             />
             <GroupField
               label="Actual Allocated"
-              type="number"
-              min="0"
-              value={form.tcActual}
-              onChange={setField("tcActual")}
+              total
+              readOnly
+              value={totals.tcActual}
             />
             <GroupField
               label="Absent."

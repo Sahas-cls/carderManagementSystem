@@ -30,17 +30,24 @@ export const EMPTY_CADRE_FORM = {
   absentMO: 0,
   absentTMO: 0,
   tcPlanned: 0,
+  // Carried over from the previous entry's Actual Allocated on page load
+  // (see DailyEntryPage.jsx's prefill effect) - Actual Allocated itself is
+  // no longer a raw field, it's derived below in computeTotals.
   tcAllocated: 0,
   tcRecruit: 0,
   tcResigned: 0,
   tcTransfer: 0,
-  tcActual: 0,
   tcAbsent: 0,
   // How tcTransfer currently splits between MO and TMO (set via the Transfer
   // to Pro Line popup in CadreDetailsCard.jsx) - persisted so re-opening a
   // saved record for editing recovers the exact split, not just the totals.
   transferMO: 0,
   transferTMO: 0,
+  // Details for each Resigned/Terminated employee (see ResignedEmployeesModal
+  // in CadreDetailsCard.jsx), one row per resignedMO+resignedTMO count.
+  // Persisted with the record so re-opening it for editing recovers the
+  // exact rows instead of losing them to component state.
+  resignedEmployees: [],
 };
 
 /**
@@ -86,7 +93,15 @@ export function computeTotals(form) {
   const presentTMO = Math.max(0, currentTMO - abtmo);
   const presentTotal = Math.max(0, currentTotal - abmo - abtmo);
 
-  const tcPresent = Math.max(0, n(form.tcActual) - n(form.tcAbsent));
+  // Actual Allocated is derived, not typed in - opening balance (tcAllocated,
+  // itself carried over from the previous entry - see DailyEntryPage.jsx's
+  // prefill effect) plus new recruits, minus resigned/transferred out.
+  // Mirrors dailyCadreService.computeDerived server-side (authoritative).
+  const tcActual = Math.max(
+    0,
+    n(form.tcAllocated) + n(form.tcRecruit) - (n(form.tcResigned) + n(form.tcTransfer))
+  );
+  const tcPresent = Math.max(0, tcActual - n(form.tcAbsent));
 
   return {
     plannedTotal,
@@ -106,6 +121,7 @@ export function computeTotals(form) {
     presentMO,
     presentTMO,
     presentTotal,
+    tcActual,
     tcPresent,
   };
 }
@@ -136,10 +152,10 @@ export function buildPayload(form) {
     tcRecruit: n(form.tcRecruit),
     tcResigned: n(form.tcResigned),
     tcTransfer: n(form.tcTransfer),
-    tcActual: n(form.tcActual),
     tcAbsent: n(form.tcAbsent),
     transferMO: n(form.transferMO),
     transferTMO: n(form.transferTMO),
+    resignedEmployees: form.resignedEmployees || [],
   };
   if (form.allocActualMO !== "") payload.allocActualMO = n(form.allocActualMO);
   if (form.allocActualTMO !== "") payload.allocActualTMO = n(form.allocActualTMO);
@@ -166,10 +182,10 @@ export function recordToForm(record) {
     tcRecruit: record.tcr || 0,
     tcResigned: record.tcs || 0,
     tcTransfer: record.tct || 0,
-    tcActual: record.tactual || 0,
     tcAbsent: record.tcab || 0,
     transferMO: record.transferMO || 0,
     transferTMO: record.transferTMO || 0,
+    resignedEmployees: record.resignedEmployees || [],
   };
 }
 

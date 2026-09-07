@@ -16,30 +16,30 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "factoryId",
         as: "factory",
       });
+      // Planned MO/TMO is never stored here directly - it's resolved by
+      // joining the Budget this record pointed to when it was saved (see
+      // dailyCadreService.resolvePlannedCounts / listDailyRecords).
+      PlannedCarder.belongsTo(models.Budget, {
+        foreignKey: "budgetId",
+        as: "budget",
+      });
     }
   }
   PlannedCarder.init(
     {
-      MO: {
+      budgetId: {
         type: DataTypes.INTEGER,
-        allowNull: false,
-        defaultValue: 0,
-      },
-      TMO: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-        defaultValue: 0,
-      },
-      total: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-        defaultValue: 0,
+        allowNull: true,
+        references: {
+          model: "budgets",
+          key: "id",
+        },
       },
       weekId: {
         type: DataTypes.INTEGER,
         allowNull: false,
         references: {
-          model: "Weeks",
+          model: "weeks",
           key: "id",
         },
       },
@@ -47,7 +47,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: false,
         references: {
-          model: "Factories",
+          model: "factories",
           key: "id",
         },
       },
@@ -63,7 +63,7 @@ module.exports = (sequelize, DataTypes) => {
     {
       sequelize,
       modelName: "PlannedCarder",
-      tableName: "PlannedCarders",
+      tableName: "plannedcarders",
       timestamps: true,
     },
   );

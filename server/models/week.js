@@ -64,7 +64,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: true,
         references: {
-          model: "Users",
+          model: "users",
           key: "id",
         },
       },
@@ -72,7 +72,7 @@ module.exports = (sequelize, DataTypes) => {
     {
       sequelize,
       modelName: "Week",
-      tableName: "Weeks",
+      tableName: "weeks",
       timestamps: true,
     },
   );

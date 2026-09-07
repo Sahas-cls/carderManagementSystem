@@ -2,21 +2,21 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.addColumn('TrainingCenters', 'weekId', {
+    await queryInterface.addColumn('trainingcenters', 'weekId', {
       type: Sequelize.INTEGER,
       allowNull: false,
       references: {
-        model: 'Weeks',
+        model: 'weeks',
         key: 'id'
       },
       onUpdate: 'CASCADE',
       onDelete: 'RESTRICT'
     });
-    await queryInterface.addColumn('TrainingCenters', 'factoryId', {
+    await queryInterface.addColumn('trainingcenters', 'factoryId', {
       type: Sequelize.INTEGER,
       allowNull: false,
       references: {
-        model: 'Factories',
+        model: 'factories',
         key: 'id'
       },
       onUpdate: 'CASCADE',
@@ -24,7 +24,7 @@ module.exports = {
     });
   },
   async down(queryInterface) {
-    await queryInterface.removeColumn('TrainingCenters', 'factoryId');
-    await queryInterface.removeColumn('TrainingCenters', 'weekId');
+    await queryInterface.removeColumn('trainingcenters', 'factoryId');
+    await queryInterface.removeColumn('trainingcenters', 'weekId');
   }
 };

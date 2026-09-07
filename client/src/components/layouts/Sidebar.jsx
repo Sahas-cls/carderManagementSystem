@@ -7,6 +7,9 @@ import { FaUsersGear } from "react-icons/fa6";
 import { MdOutlineFactory } from "react-icons/md";
 import { HiOutlineLogout } from "react-icons/hi";
 import { GrLineChart } from "react-icons/gr";
+import { TbListDetails } from "react-icons/tb";
+import { GiDuration } from "react-icons/gi";
+import { MdWorkOutline, MdBusiness, MdViewModule } from "react-icons/md";
 import useAuth from "../../hooks/useAuth";
 
 const NAV_ITEMS = [
@@ -23,6 +26,8 @@ const AD_NAV_ITEMS = [
     icon: <FaUsersGear />,
     end: true,
   },
+
+  // Master Data
   {
     to: "/factory-master",
     label: "Factory Master",
@@ -30,9 +35,39 @@ const AD_NAV_ITEMS = [
     end: true,
   },
   {
+    to: "/department-master",
+    label: "Department Master",
+    icon: <MdBusiness />,
+    end: true,
+  },
+  {
+    to: "/section-master",
+    label: "Section Master",
+    icon: <MdViewModule />,
+    end: true,
+  },
+  {
+    to: "/designation-master",
+    label: "Designation Master",
+    icon: <MdWorkOutline />,
+    end: true,
+  },
+  {
+    to: "/service-master",
+    label: "Service Range",
+    icon: <GiDuration />,
+    end: true,
+  },
+  {
     to: "/budget-master",
     label: "Budget Master",
     icon: <GrLineChart />,
+    end: true,
+  },
+  {
+    to: "/resignation-reasons",
+    label: "Resignation Reasons",
+    icon: <TbListDetails />,
     end: true,
   },
 ];

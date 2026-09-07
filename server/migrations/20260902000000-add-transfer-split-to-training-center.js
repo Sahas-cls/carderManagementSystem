@@ -6,19 +6,19 @@ module.exports = {
     // and TMO, so the client can recover the exact split (and the resulting
     // "base" New Recr. MO/TMO before the transfer was applied) after a page
     // refresh instead of losing it to in-memory-only state.
-    await queryInterface.addColumn('TrainingCenters', 'transferMO', {
+    await queryInterface.addColumn('trainingcenters', 'transferMO', {
       type: Sequelize.INTEGER,
       allowNull: false,
       defaultValue: 0,
     });
-    await queryInterface.addColumn('TrainingCenters', 'transferTMO', {
+    await queryInterface.addColumn('trainingcenters', 'transferTMO', {
       type: Sequelize.INTEGER,
       allowNull: false,
       defaultValue: 0,
     });
   },
   async down(queryInterface) {
-    await queryInterface.removeColumn('TrainingCenters', 'transferTMO');
-    await queryInterface.removeColumn('TrainingCenters', 'transferMO');
+    await queryInterface.removeColumn('trainingcenters', 'transferTMO');
+    await queryInterface.removeColumn('trainingcenters', 'transferMO');
   }
 };

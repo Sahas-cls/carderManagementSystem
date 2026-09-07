@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Button from "../../components/ui/Button";
 import Notice from "../../components/ui/Notice";
 import useActiveBudget from "../../hooks/useActiveBudget";
 import useAuth from "../../hooks/useAuth";
 import useDailyCadreRecords from "../../hooks/useDailyCadreRecords";
 import useNotice from "../../hooks/useNotice";
+import { getPreviousDailyRecord } from "../../services/dailyCadreServices";
 import {
   EMPTY_CADRE_FORM,
   buildPayload,
@@ -65,6 +66,39 @@ export default function DailyEntryPage() {
   const totals = useMemo(() => computeTotals(plannedForm), [plannedForm]);
   const isEditing = !!editingRecord;
 
+  // Carries values forward from the factory's most recent earlier entry into
+  // a fresh Daily Data Entry form: Allocated_Actual MO/TMO default to that
+  // entry's Allocated_Current MO/TMO, and Training Center's Allocated
+  // defaults to that entry's Actual Allocated (itself now derived - see
+  // CadreDetailsCard's "Actual Allocated" field). Only fills fields still at
+  // their untouched default, so it never clobbers something the user already
+  // typed, and never runs while editing a saved record (that already has its
+  // own real values via recordToForm).
+  useEffect(() => {
+    if (isEditing || !form.factoryId || !form.date) return;
+    let cancelled = false;
+    getPreviousDailyRecord({ factoryId: form.factoryId, date: form.date })
+      .then((prev) => {
+        if (cancelled || !prev) return;
+        setForm((f) => {
+          if (f.allocActualMO !== "" && f.allocActualTMO !== "" && f.tcAllocated) return f;
+          return {
+            ...f,
+            allocActualMO: f.allocActualMO === "" ? String(prev.currentMO ?? 0) : f.allocActualMO,
+            allocActualTMO: f.allocActualTMO === "" ? String(prev.currentTMO ?? 0) : f.allocActualTMO,
+            tcAllocated: f.tcAllocated ? f.tcAllocated : prev.tcActual ?? 0,
+          };
+        });
+      })
+      .catch(() => {
+        // Prefill is a convenience, not required - a failed lookup just
+        // leaves the fields at their normal blank/zero defaults.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.factoryId, form.date, isEditing]);
+
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
@@ -81,6 +115,35 @@ export default function DailyEntryPage() {
     }
     if (!form.date) {
       showNotice("Please enter a Date.", "err");
+      return;
+    }
+
+    const resignedTotal = (Number(form.resignedMO) || 0) + (Number(form.resignedTMO) || 0);
+    const resignedEmployees = form.resignedEmployees || [];
+    const REQUIRED_EMPLOYEE_FIELDS = [
+      "epf",
+      "employeeName",
+      "designationId",
+      "departmentId",
+      "sectionId",
+      "dateOfJoin",
+      "dateOfResign",
+      "resignationReasonId",
+    ];
+    if (resignedTotal > 0 && resignedEmployees.length !== resignedTotal) {
+      showNotice(
+        `Please enter details for all ${resignedTotal} resigned employee(s) (see the Resigned/Terminated popup) before submitting.`,
+        "err",
+      );
+      return;
+    }
+    if (
+      resignedEmployees.some((emp) => REQUIRED_EMPLOYEE_FIELDS.some((field) => !emp[field]))
+    ) {
+      showNotice(
+        "One or more resigned employee rows are missing details - please complete them before submitting.",
+        "err",
+      );
       return;
     }
 

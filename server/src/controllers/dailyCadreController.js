@@ -27,4 +27,25 @@ const deleteDailyRecord = asyncHandler(async (req, res) => {
   res.json({ success: true, data: null });
 });
 
-module.exports = { getDailyRecords, createDailyRecord, updateDailyRecord, deleteDailyRecord };
+// GET /api/cadre/trend?year=&factoryId=
+const getCadreTrend = asyncHandler(async (req, res) => {
+  const trend = await dailyCadreService.getCadreTrend(req.filters);
+  res.json({ success: true, data: trend });
+});
+
+// GET /api/cadre/daily/previous?factoryId=&date= - backs the Daily Data Entry
+// form's prefill (Allocated_Actual MO/TMO, Training Center Allocated). `data`
+// is null when the factory has no earlier entry to carry values from.
+const getPreviousDailyRecord = asyncHandler(async (req, res) => {
+  const record = await dailyCadreService.getPreviousDailyRecord(req.filters);
+  res.json({ success: true, data: record });
+});
+
+module.exports = {
+  getDailyRecords,
+  createDailyRecord,
+  updateDailyRecord,
+  deleteDailyRecord,
+  getCadreTrend,
+  getPreviousDailyRecord,
+};

@@ -4,10 +4,10 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     // List all tables with EXACT names as they exist in your database
     const tables = [
-      "NewRecruitCarders",
-      "ResignedCarders",
-      "NetCarders",
-      "AbsenteeismCarders",
+      "newrecruitcarders",
+      "resignedcarders",
+      "netcarders",
+      "absenteeismcarders",
     ];
 
     try {
@@ -61,10 +61,10 @@ module.exports = {
 
   async down(queryInterface, Sequelize) {
     const tables = [
-      "NewRecruitCarders",
-      "ResignedCarders",
-      "NetCarders",
-      "AbsenteeismCarders",
+      "newrecruitcarders",
+      "resignedcarders",
+      "netcarders",
+      "absenteeismcarders",
     ];
 
     try {

@@ -77,7 +77,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: false,
         references: {
-          model: "Weeks",
+          model: "weeks",
           key: "id",
         },
       },
@@ -85,7 +85,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: false,
         references: {
-          model: "Factories",
+          model: "factories",
           key: "id",
         },
       },
@@ -101,7 +101,7 @@ module.exports = (sequelize, DataTypes) => {
     {
       sequelize,
       modelName: "TrainingCenter",
-      tableName: "TrainingCenters",
+      tableName: "trainingcenters",
       timestamps: true,
     },
   );

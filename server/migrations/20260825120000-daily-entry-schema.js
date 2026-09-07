@@ -4,26 +4,26 @@
 // written, so these are safe straight NOT NULL adds - no backfill needed.
 
 const TABLES_MISSING_DATE = [
-  "PlannedCarders",
-  "AllocatedActualCarders",
-  "ShortageCarders",
-  "AllocatedCurrentCarders",
-  "AbsenteeismCarders",
-  "PresentCarders",
-  "TrainingCenters",
+  "plannedcarders",
+  "allocatedactualcarders",
+  "shortagecarders",
+  "allocatedcurrentcarders",
+  "absenteeismcarders",
+  "presentcarders",
+  "trainingcenters",
 ];
 
 const ALL_CARDER_TABLES = [
-  "PlannedCarders",
-  "AllocatedActualCarders",
-  "ShortageCarders",
-  "NewRecruitCarders",
-  "ResignedCarders",
-  "NetCarders",
-  "AllocatedCurrentCarders",
-  "AbsenteeismCarders",
-  "PresentCarders",
-  "TrainingCenters",
+  "plannedcarders",
+  "allocatedactualcarders",
+  "shortagecarders",
+  "newrecruitcarders",
+  "resignedcarders",
+  "netcarders",
+  "allocatedcurrentcarders",
+  "absenteeismcarders",
+  "presentcarders",
+  "trainingcenters",
 ];
 
 /** @type {import('sequelize-cli').Migration} */

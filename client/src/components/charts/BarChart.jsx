@@ -2,7 +2,7 @@ import { useState } from "react";
 import { CHART_INK } from "./chartTheme";
 
 const H = 260;
-const PAD = { top: 16, right: 16, bottom: 44, left: 40 };
+const PAD = { top: 26, right: 16, bottom: 44, left: 40 };
 const BAR_GAP = 0.28; // fraction of each group's width left as whitespace
 
 /**
@@ -60,22 +60,35 @@ export default function BarChart({ data, series, width = 640 }) {
                 const bh = PAD.top + innerH - y(val);
                 const isHover = hover && hover.groupIdx === gi && hover.seriesKey === s.key;
                 return (
-                  <rect
-                    key={s.key}
-                    x={bx}
-                    y={y(val)}
-                    width={Math.max(0, barW - 2)}
-                    height={Math.max(0, bh)}
-                    rx="3"
-                    fill={s.color}
-                    opacity={isHover ? 1 : 0.9}
-                    onMouseEnter={() => setHover({ groupIdx: gi, seriesKey: s.key })}
-                    onMouseLeave={() => setHover(null)}
-                  >
-                    <title>
-                      {d.label} — {s.label}: {val}
-                    </title>
-                  </rect>
+                  <g key={s.key}>
+                    <rect
+                      x={bx}
+                      y={y(val)}
+                      width={Math.max(0, barW - 2)}
+                      height={Math.max(0, bh)}
+                      rx="4"
+                      fill={s.color}
+                      opacity={isHover ? 1 : 0.9}
+                      className="transition-opacity duration-100"
+                      onMouseEnter={() => setHover({ groupIdx: gi, seriesKey: s.key })}
+                      onMouseLeave={() => setHover(null)}
+                    >
+                      <title>
+                        {d.label} — {s.label}: {val}
+                      </title>
+                    </rect>
+                    {/* Direct value label - read the number without hovering. */}
+                    <text
+                      x={bx + (barW - 2) / 2}
+                      y={y(val) - 5}
+                      textAnchor="middle"
+                      fontSize="9.5"
+                      fontWeight="700"
+                      fill={isHover ? s.color : CHART_INK.muted}
+                    >
+                      {val}
+                    </text>
+                  </g>
                 );
               })}
               <text

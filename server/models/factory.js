@@ -65,6 +65,10 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "factoryId",
         as: "budgets",
       });
+      Factory.hasMany(models.Department, {
+        foreignKey: "factoryId",
+        as: "departments",
+      });
     }
   }
   Factory.init(
@@ -81,7 +85,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: true,
         references: {
-          model: "Users",
+          model: "users",
           key: "id",
         },
       },
@@ -89,7 +93,7 @@ module.exports = (sequelize, DataTypes) => {
     {
       sequelize,
       modelName: "Factory",
-      tableName: "Factories",
+      tableName: "factories",
       timestamps: true,
       paranoid: true,
     },

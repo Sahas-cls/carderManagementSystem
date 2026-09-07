@@ -9,6 +9,13 @@ export default function GroupField({ label, total = false, className = "", ...pr
           disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed
           ${total ? "bg-slate-100 font-bold text-navy-dark" : "bg-white"} ${className}`}
         {...props}
+        // A number input that still has focus reacts to the page being
+        // scrolled by nudging its value up/down - blurring it on wheel stops
+        // that (matches type="number" only; harmless no-op otherwise since a
+        // wheel event over a non-focused/disabled input never fires this).
+        onWheel={(e) => {
+          if (props.type === "number") e.target.blur();
+        }}
       />
     </div>
   );
