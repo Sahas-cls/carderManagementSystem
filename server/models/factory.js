@@ -77,9 +77,15 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: false,
       },
+      // Enforced unique at the DB level (see the
+      // add-unique-index-to-factory-code migration) as well as app-side (see
+      // factoryService.assertCodeAvailable) - a deleted factory has its code
+      // mangled on soft-delete (factoryService.deleteFactory) so the code is
+      // freed up for reuse rather than permanently blocked.
       factoryCode: {
         type: DataTypes.STRING,
         allowNull: false,
+        unique: true,
       },
       createdBy: {
         type: DataTypes.INTEGER,

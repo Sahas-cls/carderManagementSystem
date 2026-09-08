@@ -16,14 +16,24 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "factoryId",
         as: "factory",
       });
+      // Planned is never stored here directly - it's resolved by joining the
+      // TCBudget this record pointed to when it was saved (see
+      // dailyCadreService.resolveTcPlanned / listDailyRecords).
+      TrainingCenter.belongsTo(models.TCBudget, {
+        foreignKey: "tcBudgetId",
+        as: "tcBudget",
+      });
     }
   }
   TrainingCenter.init(
     {
-      planned: {
+      tcBudgetId: {
         type: DataTypes.INTEGER,
-        allowNull: false,
-        defaultValue: 0,
+        allowNull: true,
+        references: {
+          model: "tcbudgets",
+          key: "id",
+        },
       },
       allocated: {
         type: DataTypes.INTEGER,

@@ -49,6 +49,11 @@ async function updateFactory(id, { factoryCode, factoryName }) {
 /** Soft-deletes a factory (the model is paranoid, so this sets deletedAt). */
 async function deleteFactory(id) {
   const factory = await getFactoryOr404(id);
+  // factoryCode is unique at the DB level (see the
+  // add-unique-index-to-factory-code migration), which doesn't know about
+  // paranoid soft-deletes - free the code up for reuse before deleting, or
+  // this factory's old code would be permanently unavailable to anyone else.
+  await factory.update({ factoryCode: `${factory.factoryCode}__deleted-${factory.id}` });
   await factory.destroy();
   return factory;
 }

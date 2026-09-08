@@ -78,9 +78,11 @@ function validateResignedEmployees(body, rmo, rtmo) {
 // deliberately NOT here for the same reason - they mirror Budget Master
 // (disabled fields on the form, the user never types them), so the server
 // resolves them itself from whichever Budget is active for the factory (see
-// resolvePlannedCounts). tcActual (Training Center Actual Allocated) is also
-// deliberately NOT here - it's derived from tcAllocated + tcRecruit -
-// (tcResigned + tcTransfer), never typed in or trusted from the client.
+// resolvePlannedCounts). tcPlanned mirrors TC Budget Master the same way
+// (disabled field, see resolveTcPlanned) so it's also left out. tcActual
+// (Training Center Actual Allocated) is also deliberately NOT here - it's
+// derived from tcAllocated + tcRecruit - (tcResigned + tcTransfer), never
+// typed in or trusted from the client.
 const NUMERIC_FIELDS = [
   "allocActualMO",
   "allocActualTMO",
@@ -90,7 +92,6 @@ const NUMERIC_FIELDS = [
   "resignedTMO",
   "absentMO",
   "absentTMO",
-  "tcPlanned",
   "tcAllocated",
   "tcRecruit",
   "tcResigned",

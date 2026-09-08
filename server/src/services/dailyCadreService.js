@@ -7,6 +7,7 @@ const {
   Week,
   Factory,
   Budget,
+  TCBudget,
   PlannedCarder,
   AllocatedActualCarder,
   ShortageCarder,
@@ -59,6 +60,22 @@ async function resolvePlannedCounts(factoryId, transaction) {
     budgetId: activeBudget?.id ?? null,
     plannedMO: activeBudget?.moCount ?? 0,
     plannedTMO: activeBudget?.tmoCount ?? 0,
+  };
+}
+
+/**
+ * Training Center's Planned mirrors TC Budget Master, not something the user
+ * types in - the client only shows it (disabled field, see
+ * CadreDetailsCard.jsx) so it must never be trusted from the request body
+ * (validateDailyRecordBody already strips tcPlanned out of req.body for the
+ * same reason). Resolved here from whichever TCBudget is currently marked
+ * active for the factory, or zero if none is.
+ */
+async function resolveTcPlanned(factoryId, transaction) {
+  const activeTcBudget = await TCBudget.findOne({ where: { factoryId, status: true }, transaction });
+  return {
+    tcBudgetId: activeTcBudget?.id ?? null,
+    tcPlanned: activeTcBudget?.planned ?? 0,
   };
 }
 
@@ -297,7 +314,8 @@ async function createDailyRecord(payload) {
     }
 
     const plannedCounts = await resolvePlannedCounts(factoryId, transaction);
-    const d = computeDerived({ ...payload, ...plannedCounts });
+    const tcCounts = await resolveTcPlanned(factoryId, transaction);
+    const d = computeDerived({ ...payload, ...plannedCounts, ...tcCounts });
     const rows = rowsFor(d);
     const batchId = crypto.randomUUID();
     const base = { weekId: week.id, factoryId, date, batchId };
@@ -309,7 +327,7 @@ async function createDailyRecord(payload) {
     const tc = await TrainingCenter.create(
       {
         ...base,
-        planned: d.tcPlanned,
+        tcBudgetId: tcCounts.tcBudgetId,
         allocated: d.tcAllocated,
         recruit: d.tcRecruit,
         resigned: d.tcResigned,
@@ -357,7 +375,8 @@ async function updateDailyRecord(batchId, payload) {
     }
 
     const plannedCounts = await resolvePlannedCounts(factoryId, transaction);
-    const d = computeDerived({ ...payload, ...plannedCounts });
+    const tcCounts = await resolveTcPlanned(factoryId, transaction);
+    const d = computeDerived({ ...payload, ...plannedCounts, ...tcCounts });
     const rows = rowsFor(d);
     const base = { weekId: week.id, factoryId, date };
 
@@ -371,7 +390,7 @@ async function updateDailyRecord(batchId, payload) {
     await TrainingCenter.update(
       {
         ...base,
-        planned: d.tcPlanned,
+        tcBudgetId: tcCounts.tcBudgetId,
         allocated: d.tcAllocated,
         recruit: d.tcRecruit,
         resigned: d.tcResigned,
@@ -437,7 +456,9 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
     // MO/TMO it pointed to, so this include bypasses the paranoid default.
     PlannedCarder.findAll({ where, include: [{ model: Budget, as: "budget", paranoid: false }] }),
     ...Object.values(CARDER_MODELS).map((Model) => Model.findAll({ where })),
-    TrainingCenter.findAll({ where }),
+    // TCBudgets are soft-deleted (paranoid) too - see the Budget include
+    // above for why this bypasses that default.
+    TrainingCenter.findAll({ where, include: [{ model: TCBudget, as: "tcBudget", paranoid: false }] }),
   ]);
 
   const weekMap = new Map(weeks.map((w) => [w.id, w]));
@@ -513,7 +534,7 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
       presentMO: batch.rows.present?.MO ?? 0,
       presentTMO: batch.rows.present?.TMO ?? 0,
       presentTotal: batch.rows.present?.total ?? 0,
-      tcPlanned: batch.tc?.planned ?? 0,
+      tcPlanned: batch.tc?.tcBudget?.planned ?? 0,
       tcAllocated: batch.tc?.allocated ?? 0,
       tcRecruit: batch.tc?.recruit ?? 0,
       tcResigned: batch.tc?.resigned ?? 0,
