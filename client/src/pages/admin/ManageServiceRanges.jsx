@@ -12,7 +12,7 @@ import {
   deleteServiceRange,
 } from "../../services/serviceRangeServices";
 
-const EMPTY_FORM = { years: "", months: "" };
+const EMPTY_FORM = { years: 0, months: 0 };
 
 const visualizeDateTime = (date) => {
   if (!date) return "";
@@ -243,7 +243,7 @@ const ManageServiceRanges = () => {
                   type="number"
                   min="0"
                   placeholder="e.g., 1"
-                  value={form.years || 0}
+                  value={form.years}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, years: e.target.value }))
                   }
@@ -256,7 +256,7 @@ const ManageServiceRanges = () => {
                   type="number"
                   min="0"
                   placeholder="e.g., 6"
-                  value={form.months || 0}
+                  value={form.months}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, months: e.target.value }))
                   }

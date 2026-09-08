@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import Button from "../../components/ui/Button";
 import Notice from "../../components/ui/Notice";
 import useActiveBudget from "../../hooks/useActiveBudget";
+import useActiveTcBudget from "../../hooks/useActiveTcBudget";
 import useAuth from "../../hooks/useAuth";
 import useDailyCadreRecords from "../../hooks/useDailyCadreRecords";
 import useNotice from "../../hooks/useNotice";
@@ -50,17 +51,28 @@ export default function DailyEntryPage() {
   const { activeBudget, loading: loadingActiveBudget } = useActiveBudget(
     form.factoryId,
   );
+  // Training Center's Planned mirrors whichever TC budget is currently
+  // active (Budget Master) for the selected factory, same as Planned MO/TMO
+  // above - so it's derived here too, rather than typed in by hand.
+  const { activeTcBudget, loading: loadingActiveTcBudget } = useActiveTcBudget(
+    form.factoryId,
+  );
   const plannedForm = useMemo(
     () => ({
       ...form,
       plannedMO: activeBudget?.moCount ?? 0,
       plannedTMO: activeBudget?.tmoCount ?? 0,
+      tcPlanned: activeTcBudget?.planned ?? 0,
     }),
-    [form, activeBudget],
+    [form, activeBudget, activeTcBudget],
   );
   const plannedHint =
     form.factoryId && !loadingActiveBudget && !activeBudget
       ? "No active budget set for this factory in Budget Master."
+      : "";
+  const tcPlannedHint =
+    form.factoryId && !loadingActiveTcBudget && !activeTcBudget
+      ? "No active budget set for this factory in Training Center Budget Master."
       : "";
 
   const totals = useMemo(() => computeTotals(plannedForm), [plannedForm]);
@@ -222,6 +234,7 @@ export default function DailyEntryPage() {
         totals={totals}
         onChange={handleChange}
         plannedHint={plannedHint}
+        tcPlannedHint={tcPlannedHint}
       />
 
       {isEditing && (

@@ -203,6 +203,7 @@ export default function CadreDetailsCard({
   totals,
   onChange,
   plannedHint,
+  tcPlannedHint,
 }) {
   const setField = (field) => (e) => onChange(field, e.target.value);
   const [showPopup, setShowPopup] = useState(false);
@@ -515,8 +516,13 @@ export default function CadreDetailsCard({
               type="number"
               min="0"
               value={form.tcPlanned}
-              onChange={setField("tcPlanned")}
+              disabled
             />
+            {tcPlannedHint && (
+              <div className="col-span-2 sm:col-span-4 -mt-1 text-center text-[10px] text-orange-600">
+                {tcPlannedHint}
+              </div>
+            )}
             <GroupField
               label="Allocated"
               type="number"

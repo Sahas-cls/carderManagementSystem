@@ -136,6 +136,9 @@ export function computeTotals(form) {
  * (see useActiveBudget), not something typed into this form, so the backend
  * resolves them itself from whichever Budget is active for the factory
  * (dailyCadreService.resolvePlannedCounts) rather than trusting this copy.
+ * tcPlanned is likewise NOT sent - it mirrors TC Budget Master (see
+ * useActiveTcBudget) and is resolved server-side the same way
+ * (dailyCadreService.resolveTcPlanned).
  */
 export function buildPayload(form) {
   const payload = {
@@ -147,7 +150,6 @@ export function buildPayload(form) {
     resignedTMO: n(form.resignedTMO),
     absentMO: n(form.absentMO),
     absentTMO: n(form.absentTMO),
-    tcPlanned: n(form.tcPlanned),
     tcAllocated: n(form.tcAllocated),
     tcRecruit: n(form.tcRecruit),
     tcResigned: n(form.tcResigned),

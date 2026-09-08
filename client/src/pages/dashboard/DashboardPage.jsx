@@ -372,7 +372,12 @@ export default function DashboardPage() {
         /> */}
       </div>
 
-      <SectionHeading title="Overview" context={`${scopeLabel} • This Month`} />
+      {/* "This Month" would be wrong for Cadre Trend below (it spans the
+          whole selected year) - Cadre Fulfilment is the only card here
+          that's actually a current-month snapshot, so the section context
+          stays scope-only rather than claiming a timeframe that fits just
+          one of the two cards. */}
+      <SectionHeading title="Cadre Fulfilment & Trend" context={scopeLabel} />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {canShowScoped ? (
           <>
@@ -381,11 +386,26 @@ export default function DashboardPage() {
                 <DonutChart data={fulfilmentData} centerLabel="Cadre Budget" />
               </div>
             </Card>
-            <Card title="Current MO/TMO Composition" variant="navy">
+            {/* trend */}
+            <Card title="Cadre Trend" variant="navy">
               <div className="p-4 pt-3">
-                <DonutChart
-                  data={compositionData}
-                  centerLabel="Current Cadre"
+                <TrendAreaChart
+                  data={cadreTrendData}
+                  formatX={formatMonthLabel}
+                  series={[
+                    {
+                      key: "budget",
+                      label: "Budget",
+                      color: CHART_COLORS.blue,
+                      dashed: true,
+                    },
+                    {
+                      key: "allocated",
+                      label: "Allocated",
+                      color: CHART_COLORS.aqua,
+                      area: true,
+                    },
+                  ]}
                 />
               </div>
             </Card>
@@ -404,31 +424,8 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <SectionHeading title="Trends" context={scopeAndYear} />
+      <SectionHeading title="Recruitment & Resignation" context={scopeAndYear} />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <Card title="Cadre Trend" variant="navy">
-          <div className="p-4 pt-3">
-            <TrendAreaChart
-              data={cadreTrendData}
-              formatX={formatMonthLabel}
-              series={[
-                {
-                  key: "budget",
-                  label: "Budget",
-                  color: CHART_COLORS.blue,
-                  dashed: true,
-                },
-                {
-                  key: "allocated",
-                  label: "Allocated",
-                  color: CHART_COLORS.aqua,
-                  area: true,
-                },
-              ]}
-            />
-          </div>
-        </Card>
-
         <Card title="Recruitment & Resign" variant="orange">
           <div className="p-4 pt-3">
             <TrendAreaChart
@@ -446,46 +443,28 @@ export default function DashboardPage() {
             />
           </div>
         </Card>
-
-        <Card title="LTO Ratio" variant="purple">
-          <div className="p-4 pt-3">
-            <TrendAreaChart
-              data={ltoData}
-              formatX={formatMonthLabel}
-              series={[
-                {
-                  key: "lto",
-                  label: "LTO Ratio (%)",
-                  color: CHART_COLORS.violet,
-                  area: true,
-                },
-              ]}
-            />
-          </div>
-        </Card>
-
-        <Card title="Absenteeism" variant="navy">
-          <div className="p-4 pt-3">
-            <TrendAreaChart
-              data={absenteeismData}
-              formatX={formatMonthLabel}
-              series={[
-                {
-                  key: "absenteeism",
-                  label: "Absenteeism Rate (%)",
-                  color: CHART_COLORS.red,
-                  area: true,
-                },
-              ]}
-            />
-          </div>
-        </Card>
       </div>
 
       <SectionHeading title="Attrition Analysis" context={scopeAndYear} />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {canShowScoped ? (
           <>
+            <Card title="LTO Ratio" variant="purple">
+              <div className="p-4 pt-3">
+                <TrendAreaChart
+                  data={ltoData}
+                  formatX={formatMonthLabel}
+                  series={[
+                    {
+                      key: "lto",
+                      label: "LTO Ratio (%)",
+                      color: CHART_COLORS.violet,
+                      area: true,
+                    },
+                  ]}
+                />
+              </div>
+            </Card>
             <Card title="LTO by Length of Service" variant="green">
               <div className="p-4 pt-3">
                 <DonutChart data={serviceLengthData} centerLabel="Resigned" />
@@ -513,40 +492,27 @@ export default function DashboardPage() {
 
       {isAdmin && (
         <>
-          <SectionHeading
-            title="Factory Comparison"
-            context="This Month • Every Factory"
-          />
+          {/* This card is a single trend line for the current scope, not a
+              per-factory breakdown - "Factory Comparison" and "Every
+              Factory" both overstated what it actually shows. */}
+          <SectionHeading title="Absenteeism" context={scopeAndYear} />
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <Card title="Attendance by Factory" variant="teal">
+            <Card title="Absenteeism Rate" variant="navy">
               <div className="p-4 pt-3">
-                <BarChart
-                  data={attendanceByFactory}
+                <TrendAreaChart
+                  data={absenteeismData}
+                  formatX={formatMonthLabel}
                   series={[
                     {
-                      key: "present",
-                      label: "Present",
-                      color: CHART_COLORS.aqua,
+                      key: "absenteeism",
+                      label: "Absenteeism Rate (%)",
+                      color: CHART_COLORS.red,
+                      area: true,
                     },
-                    { key: "absent", label: "Absent", color: CHART_COLORS.red },
                   ]}
                 />
               </div>
             </Card>
-            {/* <Card title="Shortage by Factory" variant="orange">
-              <div className="p-4 pt-3">
-                <BarChart
-                  data={shortageByFactory}
-                  series={[
-                    {
-                      key: "shortage",
-                      label: "Shortage",
-                      color: CHART_COLORS.orange,
-                    },
-                  ]}
-                />
-              </div>
-            </Card> */}
           </div>
         </>
       )}

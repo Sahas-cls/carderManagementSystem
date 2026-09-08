@@ -32,8 +32,12 @@ export default function LoginPage() {
 
   return (
     <div className="bg-white border border-app-border rounded-lg shadow-sm p-6 sm:p-8">
-      <h2 className="text-xl font-semibold text-navy-dark mb-1">Welcome back</h2>
-      <p className="text-sm text-app-muted mb-6">Log in to your workforce management account.</p>
+      <h2 className="text-xl font-semibold text-navy-dark mb-1">
+        Welcome back
+      </h2>
+      <p className="text-sm text-app-muted mb-6">
+        Log in to your workforce management account.
+      </p>
 
       {error && <Notice message={error} type="err" />}
 
@@ -55,17 +59,30 @@ export default function LoginPage() {
           onChange={(e) => setPassword(e.target.value)}
         />
 
-        <Button type="submit" variant="primary" className="w-full mt-2" disabled={submitting}>
+        <Button
+          type="submit"
+          variant="primary"
+          className="w-full mt-2"
+          disabled={submitting}
+        >
           {submitting ? "Logging in…" : "Log In"}
         </Button>
       </form>
 
       <p className="text-xs text-app-muted mt-6 text-center">
         Don&apos;t have an account?{" "}
-        <Link to="/register" className="text-teal font-semibold hover:underline">
+        <Link
+          to="/register"
+          className="text-teal font-semibold hover:underline"
+        >
           Register
         </Link>
       </p>
+      <div className="mt-4">
+        <p className="text-center text-xs text-slate-400">
+          Powered by Concord IT Team
+        </p>
+      </div>
     </div>
   );
 }
