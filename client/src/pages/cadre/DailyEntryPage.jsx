@@ -26,9 +26,24 @@ export default function DailyEntryPage() {
   // assigned fall back to the old "pick one" behaviour, unfiltered.
   const userFactoryId = user?.factory?.id ? String(user.factory.id) : "";
   const emptyForm = useMemo(
-    () => ({ ...EMPTY_CADRE_FORM, factoryId: userFactoryId, date: todayDateStr() }),
+    () => ({
+      ...EMPTY_CADRE_FORM,
+      factoryId: userFactoryId,
+      date: todayDateStr(),
+    }),
     [userFactoryId],
   );
+
+  // Which month the "Daily Data Records" table below shows - defaults to the
+  // current month, but users often go back and enter/correct older data, so
+  // it's a filter they can change rather than always being locked to "now".
+  const [recordsMonth, setRecordsMonth] = useState(() =>
+    todayDateStr().slice(0, 7),
+  );
+  const period = useMemo(() => {
+    const [y, m] = recordsMonth.split("-").map(Number);
+    return { year: y, month: m };
+  }, [recordsMonth]);
 
   const {
     records,
@@ -39,11 +54,20 @@ export default function DailyEntryPage() {
     addRecord,
     updateRecord,
     deleteRecord,
-  } = useDailyCadreRecords(userFactoryId);
+    refetch,
+  } = useDailyCadreRecords(userFactoryId, period);
   const [form, setForm] = useState(emptyForm);
   const [editingRecord, setEditingRecord] = useState(null);
   const [saving, setSaving] = useState(false);
   const [notice, showNotice] = useNotice();
+
+  useEffect(() => {
+    if (window.innerWidth < 500) {
+      window.scrollTo({ top: 300, behavior: "smooth" });
+      return;
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [notice]);
 
   // Planned MO/TMO is no longer typed in by hand - it always mirrors whichever budget is
   // currently active (Budget Master) for the selected factory, so it's derived here rather
@@ -93,12 +117,23 @@ export default function DailyEntryPage() {
       .then((prev) => {
         if (cancelled || !prev) return;
         setForm((f) => {
-          if (f.allocActualMO !== "" && f.allocActualTMO !== "" && f.tcAllocated) return f;
+          if (
+            f.allocActualMO !== "" &&
+            f.allocActualTMO !== "" &&
+            f.tcAllocated
+          )
+            return f;
           return {
             ...f,
-            allocActualMO: f.allocActualMO === "" ? String(prev.currentMO ?? 0) : f.allocActualMO,
-            allocActualTMO: f.allocActualTMO === "" ? String(prev.currentTMO ?? 0) : f.allocActualTMO,
-            tcAllocated: f.tcAllocated ? f.tcAllocated : prev.tcActual ?? 0,
+            allocActualMO:
+              f.allocActualMO === ""
+                ? String(prev.currentMO ?? 0)
+                : f.allocActualMO,
+            allocActualTMO:
+              f.allocActualTMO === ""
+                ? String(prev.currentTMO ?? 0)
+                : f.allocActualTMO,
+            tcAllocated: f.tcAllocated ? f.tcAllocated : (prev.tcActual ?? 0),
           };
         });
       })
@@ -130,7 +165,8 @@ export default function DailyEntryPage() {
       return;
     }
 
-    const resignedTotal = (Number(form.resignedMO) || 0) + (Number(form.resignedTMO) || 0);
+    const resignedTotal =
+      (Number(form.resignedMO) || 0) + (Number(form.resignedTMO) || 0);
     const resignedEmployees = form.resignedEmployees || [];
     const REQUIRED_EMPLOYEE_FIELDS = [
       "epf",
@@ -150,7 +186,9 @@ export default function DailyEntryPage() {
       return;
     }
     if (
-      resignedEmployees.some((emp) => REQUIRED_EMPLOYEE_FIELDS.some((field) => !emp[field]))
+      resignedEmployees.some((emp) =>
+        REQUIRED_EMPLOYEE_FIELDS.some((field) => !emp[field]),
+      )
     ) {
       showNotice(
         "One or more resigned employee rows are missing details - please complete them before submitting.",
@@ -235,6 +273,8 @@ export default function DailyEntryPage() {
         onChange={handleChange}
         plannedHint={plannedHint}
         tcPlannedHint={tcPlannedHint}
+        batchId={editingRecord?.batchId}
+        onEmployeeDeleted={refetch}
       />
 
       {isEditing && (
@@ -258,13 +298,15 @@ export default function DailyEntryPage() {
 
       {loading ? (
         <div className="p-10 text-center text-sm text-slate-400">
-          Loading this month's records…
+          Loading records…
         </div>
       ) : (
         <DailyRecordsTable
           records={records}
           onEdit={handleEdit}
           onDelete={handleDelete}
+          month={recordsMonth}
+          onMonthChange={setRecordsMonth}
         />
       )}
     </div>

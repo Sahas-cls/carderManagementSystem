@@ -24,3 +24,8 @@ export function setUserStatus(id, isActive) {
 export function resetPassword(id) {
   return api.post(`/users/${id}/reset-password`);
 }
+
+/** Permanently deletes a user account (admin-only). An admin can't delete their own account. */
+export function deleteUser(id) {
+  return api.delete(`/users/${id}`);
+}

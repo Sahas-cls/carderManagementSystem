@@ -4,6 +4,8 @@ import CadreGroup from "./CadreGroup";
 import GroupField from "./GroupField";
 import Button from "../../../components/ui/Button";
 import ResignedEmployeesModal from "./ResignedEmployeesModal";
+import ResignedEmployeesListModal from "./ResignedEmployeesListModal";
+import { FaEye } from "react-icons/fa";
 
 // Modal component
 function TransferModal({
@@ -204,10 +206,13 @@ export default function CadreDetailsCard({
   onChange,
   plannedHint,
   tcPlannedHint,
+  batchId,
+  onEmployeeDeleted,
 }) {
   const setField = (field) => (e) => onChange(field, e.target.value);
   const [showPopup, setShowPopup] = useState(false);
   const [showResignedPopup, setShowResignedPopup] = useState(false);
+  const [showResignedListPopup, setShowResignedListPopup] = useState(false);
 
   // The "New Recr. MO_/Rejoined MO_TMO" total is always base (regular
   // recruitment/rejoin activity) + whatever the TC transfer currently
@@ -265,20 +270,24 @@ export default function CadreDetailsCard({
     onChange("transferTMO", tmo.toString());
   };
 
-  // Handle blur on the Resigned/Terminated MO/TMO fields - opens the popup
-  // whenever the combined count doesn't match how many employee rows are
-  // already on file for this record (a fresh count, or the user changed it
-  // after already filling the popup in once).
+  // Handle blur on the Resigned/Terminated MO/TMO fields. Raising the count
+  // opens the Add popup to collect details for the new employee(s) needed to
+  // reach it. Lowering the count no longer auto-opens anything - removing a
+  // specific existing employee is the eye icon's job (opens
+  // ResignedEmployeesListModal, which permanently deletes them and adjusts
+  // the count itself), not something to guess at from a raw number going
+  // down. If the count still doesn't match what's on file, submitting the
+  // form surfaces that clearly (see validateResignedEmployees server-side).
   const resignedMO = parseInt(form.resignedMO) || 0;
   const resignedTMO = parseInt(form.resignedTMO) || 0;
   const resignedTotal = resignedMO + resignedTMO;
   const resignedEmployees = form.resignedEmployees || [];
 
   const handleResignedBlur = () => {
-    if (resignedTotal > 0 && resignedEmployees.length !== resignedTotal) {
-      setShowResignedPopup(true);
-    } else if (resignedTotal === 0 && resignedEmployees.length > 0) {
+    if (resignedTotal === 0 && resignedEmployees.length > 0) {
       onChange("resignedEmployees", []);
+    } else if (resignedTotal > resignedEmployees.length) {
+      setShowResignedPopup(true);
     }
   };
 
@@ -310,6 +319,22 @@ export default function CadreDetailsCard({
         factoryId={form.factoryId}
         entryDate={form.date}
         onSave={(rows) => onChange("resignedEmployees", rows)}
+      />
+
+      <ResignedEmployeesListModal
+        isOpen={showResignedListPopup}
+        onClose={() => setShowResignedListPopup(false)}
+        employees={resignedEmployees}
+        rmo={resignedMO}
+        rtmo={resignedTMO}
+        factoryId={form.factoryId}
+        batchId={batchId}
+        onEmployeesChange={(rows) => onChange("resignedEmployees", rows)}
+        onCountsChange={(newRmo, newRtmo) => {
+          onChange("resignedMO", String(newRmo));
+          onChange("resignedTMO", String(newRtmo));
+        }}
+        onDeleted={onEmployeeDeleted}
       />
 
       <Card title="Cadre / Recruitment Details">
@@ -410,38 +435,60 @@ export default function CadreDetailsCard({
             />
           </CadreGroup>
 
-          <CadreGroup
-            title={
-              <>
-                Resigned /
-                <br />
-                Terminated
-              </>
-            }
-          >
-            <GroupField
-              label="MO"
-              type="number"
-              min="0"
-              value={form.resignedMO}
-              onChange={setField("resignedMO")}
-              onBlur={handleResignedBlur}
-            />
-            <GroupField
-              label="TMO"
-              type="number"
-              min="0"
-              value={form.resignedTMO}
-              onChange={setField("resignedTMO")}
-              onBlur={handleResignedBlur}
-            />
-            <GroupField
-              label="Total"
-              total
-              readOnly
-              value={totals.resignedTotal}
-            />
-          </CadreGroup>
+          <div className="relative">
+            <CadreGroup
+              title={
+                <>
+                  Resigned /
+                  <br />
+                  Terminated
+                </>
+              }
+            >
+              <GroupField
+                label="MO"
+                type="number"
+                min="0"
+                value={form.resignedMO}
+                onChange={setField("resignedMO")}
+                onBlur={handleResignedBlur}
+              />
+              <GroupField
+                label="TMO"
+                type="number"
+                min="0"
+                value={form.resignedTMO}
+                onChange={setField("resignedTMO")}
+                onBlur={handleResignedBlur}
+              />
+              <GroupField
+                label="Total"
+                total
+                readOnly
+                value={totals.resignedTotal}
+              />
+            </CadreGroup>
+            <button
+              type="button"
+              onClick={() => setShowResignedListPopup(true)}
+              disabled={resignedEmployees.length === 0}
+              title={
+                resignedEmployees.length === 0
+                  ? "No resigned employees on file yet"
+                  : resignedEmployees.length !== resignedTotal
+                    ? `View / delete resigned employees - ${resignedEmployees.length} on file vs ${resignedTotal} expected`
+                    : "View / delete resigned employees"
+              }
+              className={`absolute cursor-pointer top-2 right-1 min-w-6 shadow-md min-h-6 p-1 rounded-full border text-xs flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                resignedEmployees.length !== resignedTotal &&
+                resignedEmployees.length > 0
+                  ? "bg-orange-soft hidden border-orange-300 text-[#89511d] hover:bg-orange-100"
+                  : "bg-white block border-slate-300 text-slate-500 hover:bg-slate-50 hover:text-slate-700 animate-pulse"
+              }`}
+            >
+              <FaEye color="blue" size={20} />
+            </button>
+          </div>
 
           <CadreGroup
             title={

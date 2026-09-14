@@ -10,6 +10,7 @@ import { GrLineChart } from "react-icons/gr";
 import { TbListDetails } from "react-icons/tb";
 import { GiDuration } from "react-icons/gi";
 import { MdWorkOutline, MdBusiness, MdViewModule } from "react-icons/md";
+import { PiIdentificationBadgeFill } from "react-icons/pi";
 import useAuth from "../../hooks/useAuth";
 
 const NAV_ITEMS = [
@@ -24,6 +25,12 @@ const AD_NAV_ITEMS = [
     to: "/manage-users",
     label: "Users",
     icon: <FaUsersGear />,
+    end: true,
+  },
+  {
+    to: "/manage-employees",
+    label: "Employees",
+    icon: <PiIdentificationBadgeFill />,
     end: true,
   },
 

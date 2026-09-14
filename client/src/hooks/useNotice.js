@@ -12,7 +12,7 @@ export default function useNotice() {
   const showNotice = useCallback((message, type = "ok") => {
     setNotice({ message, type });
     clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setNotice(null), 3000);
+    timerRef.current = setTimeout(() => setNotice(null), 7000);
   }, []);
 
   return [notice, showNotice];

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
+import { CountBadge } from "../../components/ui/Badge";
 import { FieldInput, FieldSelect } from "../../components/ui/FormField";
 import Swal from "sweetalert2";
 import { CiEdit } from "react-icons/ci";
@@ -40,13 +41,17 @@ const ManageDepartmentPage = () => {
   const [editingId, setEditingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [factoryFilter, setFactoryFilter] = useState(""); // "" = every factory - scopes the table below server-side
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
       try {
-        const [departmentList, factoryList] = await Promise.all([getDepartments(), getFactories()]);
+        const [departmentList, factoryList] = await Promise.all([
+          getDepartments(factoryFilter || undefined),
+          getFactories(),
+        ]);
         if (!cancelled) {
           setDepartments(departmentList);
           setFactories(factoryList);
@@ -68,7 +73,7 @@ const ManageDepartmentPage = () => {
     return () => {
       cancelled = true;
     };
-  }, [reloadToken]);
+  }, [reloadToken, factoryFilter]);
 
   const resetForm = () => {
     setForm({ ...EMPTY_FORM });
@@ -100,7 +105,10 @@ const ManageDepartmentPage = () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
 
-    const payload = { factoryId: Number(form.factoryId), departmentName: form.departmentName.trim() };
+    const payload = {
+      factoryId: Number(form.factoryId),
+      departmentName: form.departmentName.trim(),
+    };
 
     try {
       if (!editingId) {
@@ -221,14 +229,19 @@ const ManageDepartmentPage = () => {
       </div>
 
       {showForm && (
-        <Card title={editingId ? "Edit Department" : "Add New Department"} variant="navy">
+        <Card
+          title={editingId ? "Edit Department" : "Add New Department"}
+          variant="navy"
+        >
           <form className="p-4 grid gap-y-2" onSubmit={handleSubmit}>
             <div className="flex flex-wrap md:flex-nowrap gap-4 items-end">
               <div className="grow md:grow-0 md:w-1/3">
                 <FieldSelect
                   label="Factory"
                   value={form.factoryId}
-                  onChange={(e) => setForm((prev) => ({ ...prev, factoryId: e.target.value }))}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, factoryId: e.target.value }))
+                  }
                 >
                   <option value="">Select Factory</option>
                   {factories.map((f) => (
@@ -245,18 +258,36 @@ const ManageDepartmentPage = () => {
                   placeholder="e.g., Cutting"
                   value={form.departmentName}
                   onChange={(e) =>
-                    setForm((prev) => ({ ...prev, departmentName: e.target.value }))
+                    setForm((prev) => ({
+                      ...prev,
+                      departmentName: e.target.value,
+                    }))
                   }
                 />
               </div>
             </div>
 
             <div className="mt-6 flex gap-4 justify-end">
-              <Button type="button" onClick={handleCancel} disabled={isSubmitting}>
+              <Button
+                type="button"
+                onClick={handleCancel}
+                disabled={isSubmitting}
+              >
                 Cancel
               </Button>
-              <Button type="submit" variant="primary" disabled={isSubmitting} className="min-w-[100px]">
-                {isSubmitting ? (editingId ? "Updating..." : "Saving...") : editingId ? "Update" : "Save"}
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={isSubmitting}
+                className="min-w-[100px]"
+              >
+                {isSubmitting
+                  ? editingId
+                    ? "Updating..."
+                    : "Saving..."
+                  : editingId
+                    ? "Update"
+                    : "Save"}
               </Button>
             </div>
           </form>
@@ -264,13 +295,49 @@ const ManageDepartmentPage = () => {
       )}
 
       <div className="mt-4 rounded-md">
-        <Card title="Manage Departments" variant="navy">
+        <Card
+          title="Manage Departments"
+          variant="navy"
+          actions={
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-1.5 text-xs font-normal text-white">
+                Factory:
+                <select
+                  value={factoryFilter}
+                  onChange={(e) => setFactoryFilter(e.target.value)}
+                  className="rounded border border-white/40 bg-white/10 px-1.5 py-0.5 text-white text-xs focus:outline-none focus:ring-1 focus:ring-white [color-scheme:dark]"
+                >
+                  <option value="" className="text-black">
+                    All Factories
+                  </option>
+                  {factories.map((f) => (
+                    <option
+                      key={f.id}
+                      value={String(f.id)}
+                      className="text-black"
+                    >
+                      {f.factoryName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <CountBadge>
+                {departments.length} department
+                {departments.length === 1 ? "" : "s"}
+              </CountBadge>
+            </div>
+          }
+        >
           <div className="p-4 overflow-auto">
             {loading ? (
-              <div className="text-center text-sm text-slate-400 py-10">Loading departments...</div>
+              <div className="text-center text-sm text-slate-400 py-10">
+                Loading departments...
+              </div>
             ) : departments.length === 0 ? (
               <div className="text-center text-sm text-slate-400 py-10">
-                No departments found. Click "Add Department" to create one.
+                {factoryFilter
+                  ? "No departments found for this factory."
+                  : 'No departments found. Click "Add Department" to create one.'}
               </div>
             ) : (
               <table className="w-full text-sm border-collapse">
@@ -284,10 +351,19 @@ const ManageDepartmentPage = () => {
                 </thead>
                 <tbody>
                   {departments.map((row) => (
-                    <tr key={row.id} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
-                      <td className="py-2.5 pr-3 text-gray-600">{row.factory?.factoryName || "-"}</td>
-                      <td className="py-2.5 pr-3 font-medium text-gray-800">{row.departmentName}</td>
-                      <td className="py-2.5 pr-3 text-gray-500 text-xs">{visualizeDateTime(row.createdAt)}</td>
+                    <tr
+                      key={row.id}
+                      className="border-b border-gray-200 hover:bg-gray-50 transition-colors"
+                    >
+                      <td className="py-2.5 pr-3 text-gray-600">
+                        {row.factory?.factoryName || "-"}
+                      </td>
+                      <td className="py-2.5 pr-3 font-medium text-gray-800">
+                        {row.departmentName}
+                      </td>
+                      <td className="py-2.5 pr-3 text-gray-500 text-xs">
+                        {visualizeDateTime(row.createdAt)}
+                      </td>
                       <td className="py-2.5 pr-3">
                         <div className="flex gap-2 justify-center">
                           <button

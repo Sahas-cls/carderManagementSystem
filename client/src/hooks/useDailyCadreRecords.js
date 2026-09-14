@@ -6,14 +6,18 @@ import { getWeeks } from "../services/weekServices";
 const now = new Date();
 
 /**
- * Backs the Daily Data Entry page: loads the current calendar month's
- * records from the Node backend (newest-entered first), plus the
+ * Backs the Daily Data Entry page: loads one calendar month's records from
+ * the Node backend (newest-entered first) - `period` picks which month
+ * (defaults to the current one, so old data users entered under a past
+ * month stays reachable via the page's month filter), plus the
  * factory/week lists the form needs, and exposes add/update/delete that
  * hit the API and refresh the list. When `factoryId` is given, the
  * "Daily Data Records" table is scoped to that factory (re-fetches
  * whenever it changes) - otherwise every factory's records are shown.
  */
-export default function useDailyCadreRecords(factoryId) {
+export default function useDailyCadreRecords(factoryId, period) {
+  const year = period?.year ?? now.getFullYear();
+  const month = period?.month ?? now.getMonth() + 1;
   const [records, setRecords] = useState([]);
   const [factories, setFactories] = useState([]);
   const [weeks, setWeeks] = useState([]);
@@ -46,7 +50,7 @@ export default function useDailyCadreRecords(factoryId) {
     async function load() {
       setLoading(true);
       try {
-        const data = await listDailyRecords({ year: now.getFullYear(), month: now.getMonth() + 1, factoryId });
+        const data = await listDailyRecords({ year, month, factoryId });
         if (!cancelled) {
           setRecords(data);
           setError("");
@@ -61,7 +65,7 @@ export default function useDailyCadreRecords(factoryId) {
     return () => {
       cancelled = true;
     };
-  }, [reloadToken, factoryId]);
+  }, [reloadToken, factoryId, year, month]);
 
   const addRecord = useCallback(
     async (payload) => {

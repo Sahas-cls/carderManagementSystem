@@ -25,3 +25,23 @@ export function getReasonAnalysis({ factoryId, year } = {}) {
   if (year) params.year = year;
   return api.get("/employees/reason-analysis", { params });
 }
+
+/** No `search` -> the 10 (or `limit`) most recently added employees. With `search`, employees whose EPF number contains it. */
+export function getEmployees({ search, limit } = {}) {
+  const params = {};
+  if (search) params.search = search;
+  if (limit) params.limit = limit;
+  return api.get("/employees", { params: Object.keys(params).length ? params : undefined });
+}
+
+export function createEmployee(employee) {
+  return api.post("/employees", { employee });
+}
+
+export function editEmployee(id, employee) {
+  return api.put(`/employees/${id}`, { employee });
+}
+
+export function deleteEmployee(id) {
+  return api.delete(`/employees/${id}`);
+}

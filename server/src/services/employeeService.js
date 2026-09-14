@@ -1,7 +1,16 @@
 "use strict";
 
 const { Op } = require("sequelize");
-const { Employee, ManageServiceRanges, ResignationReason, ResignedCarder } = require("../../models");
+const {
+  Employee,
+  Designation,
+  Department,
+  Section,
+  ManageServiceRanges,
+  ResignationReason,
+  ResignedCarder,
+} = require("../../models");
+const ApiError = require("../utils/ApiError");
 
 /**
  * Creates/updates the Employee rows for the Resigned Employee popup on the
@@ -51,6 +60,31 @@ async function syncResignedEmployees(employees, batchId, transaction) {
     { batchId: null, isMo: null },
     { where: unlinkWhere, transaction },
   );
+}
+
+/**
+ * Permanently deletes one resigned employee (a real hard delete, unlike
+ * syncResignedEmployees' unlink-only trimming above) - backs the per-employee
+ * Delete button in ResignedEmployeesModal.jsx. Scoped to the batch the
+ * employee is currently linked to, so a stray epf can't delete unrelated
+ * master data via this route. Returns the deleted row's isMo (true = MO,
+ * false = TMO) so the caller can decrement the right Resigned/Terminated
+ * count; throws 404 if that epf isn't currently linked to this batch (e.g.
+ * it was only added to the form this session and never actually saved yet).
+ */
+async function deleteResignedEmployee(epf, batchId, transaction) {
+  const employee = await Employee.findOne({ where: { epf, batchId }, transaction });
+  if (!employee) {
+    throw new ApiError(404, `Resigned employee ${epf} is not on record ${batchId}.`);
+  }
+  const isMo = employee.isMo;
+  // Employee is a paranoid model (soft-delete by default: destroy() just
+  // sets deletedAt and the row stays in the table, invisible only to
+  // Sequelize's own default queries). force:true here issues a real SQL
+  // DELETE so the row is actually gone from the database, matching what
+  // this button promises the user.
+  await employee.destroy({ transaction, force: true });
+  return { epf, isMo };
 }
 
 /** Unlinks every employee tied to a batch (used when the daily entry itself is deleted) - doesn't delete the employee record. */
@@ -202,10 +236,104 @@ async function getReasonAnalysis({ factoryId, year } = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Employee Master (Manage Employees admin page) - general employee-details
+// CRUD, independent of the Daily Data Entry "Resigned Employees" flow above.
+// Shares the same table: an employee created/edited here is the same record
+// the resigned-employee popup would later find/update by epf.
+// ---------------------------------------------------------------------------
+
+const EMPLOYEE_INCLUDE = [
+  { model: Designation, as: "designation", attributes: ["id", "designation"] },
+  { model: Department, as: "department", attributes: ["id", "departmentName"] },
+  { model: Section, as: "section", attributes: ["id", "sectionName"] },
+  { model: ResignationReason, as: "resignationReason", attributes: ["id", "resignedReason"] },
+];
+
+const DEFAULT_RECENT_LIMIT = 10;
+const SEARCH_RESULT_LIMIT = 50;
+
+/**
+ * Backs the Manage Employees page: with no search term, the 10 (or `limit`)
+ * most recently added employees; with a search term, up to SEARCH_RESULT_LIMIT
+ * employees whose EPF number contains it (partial match, so "123" finds
+ * "EPF00123").
+ */
+async function listEmployees({ search, limit } = {}) {
+  if (search) {
+    return Employee.findAll({
+      where: { epf: { [Op.substring]: search } },
+      include: EMPLOYEE_INCLUDE,
+      order: [["epf", "ASC"]],
+      limit: SEARCH_RESULT_LIMIT,
+    });
+  }
+  return Employee.findAll({
+    include: EMPLOYEE_INCLUDE,
+    order: [["createdAt", "DESC"]],
+    limit: limit || DEFAULT_RECENT_LIMIT,
+  });
+}
+
+async function getEmployeeOr404(id) {
+  const employee = await Employee.findByPk(id, { include: EMPLOYEE_INCLUDE });
+  if (!employee) {
+    throw new ApiError(404, `Employee ${id} not found.`);
+  }
+  return employee;
+}
+
+/** Rejects a duplicate EPF number (unique across all employees), excluding `excludeId` on updates. */
+async function assertEpfAvailable(epf, excludeId) {
+  const existing = await Employee.findOne({ where: { epf } });
+  if (existing && existing.id !== excludeId) {
+    throw new ApiError(409, `EPF number "${epf}" is already assigned to another employee.`);
+  }
+}
+
+async function createEmployeeRecord(fields) {
+  await assertEpfAvailable(fields.epf);
+  const employee = await Employee.create(fields);
+  return getEmployeeOr404(employee.id);
+}
+
+async function updateEmployeeRecord(id, fields) {
+  const employee = await getEmployeeOr404(id);
+  await assertEpfAvailable(fields.epf, employee.id);
+
+  await employee.update(fields);
+  return getEmployeeOr404(id);
+}
+
+/**
+ * Hard-deletes an employee record (Employee is paranoid, so a plain destroy()
+ * would just soft-delete it - force:true actually removes the row, matching
+ * what the Delete button on the Manage Employees page promises). Refuses to
+ * delete an employee currently linked to a Daily Data Entry batch (see
+ * syncResignedEmployees above) so that entry's resigned-employee history
+ * isn't silently orphaned - it must be removed from that entry first.
+ */
+async function deleteEmployeeRecord(id) {
+  const employee = await getEmployeeOr404(id);
+  if (employee.batchId) {
+    throw new ApiError(
+      409,
+      "This employee is linked to a resigned-employee record on a Daily Data Entry and can't be deleted here. Remove them from that entry first.",
+    );
+  }
+  await employee.destroy({ force: true });
+  return employee;
+}
+
 module.exports = {
   syncResignedEmployees,
+  deleteResignedEmployee,
   unlinkBatch,
   listByBatchIds,
   getServiceLengthAnalysis,
   getReasonAnalysis,
+  listEmployees,
+  createEmployeeRecord,
+  updateEmployeeRecord,
+  deleteEmployeeRecord,
 };

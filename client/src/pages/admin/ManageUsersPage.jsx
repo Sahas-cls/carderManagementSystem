@@ -2,10 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import Button from "../../components/ui/Button";
 import Card from "../../components/ui/Card";
 import Notice from "../../components/ui/Notice";
+import { CountBadge } from "../../components/ui/Badge";
 import useAuth from "../../hooks/useAuth";
 import useNotice from "../../hooks/useNotice";
 import { getFactories } from "../../services/cadreServices";
 import {
+  deleteUser,
   getUserRoles,
   getUsers,
   resetPassword,
@@ -28,8 +30,16 @@ export default function ManageUsersPage() {
   const [editingUser, setEditingUser] = useState(null);
   const [statusUpdatingId, setStatusUpdatingId] = useState(null);
   const [resettingId, setResettingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const [resetResult, setResetResult] = useState(null); // { userName, tempPassword } - stays until dismissed
   const [copied, setCopied] = useState(false);
+  const [factoryFilter, setFactoryFilter] = useState(""); // "" = every factory, "none" = unassigned users only, else a factory id
+
+  const filteredUsers = users.filter((u) => {
+    if (!factoryFilter) return true;
+    if (factoryFilter === "none") return !u.factoryId;
+    return String(u.factoryId) === factoryFilter;
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -102,6 +112,26 @@ export default function ManageUsersPage() {
     }
   };
 
+  const handleDelete = async (targetUser) => {
+    if (
+      !window.confirm(
+        `Permanently delete ${targetUser.userName} (${targetUser.email})? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setDeletingId(targetUser.id);
+    try {
+      await deleteUser(targetUser.id);
+      showNotice(`${targetUser.userName} deleted.`, "ok");
+      refetch();
+    } catch (err) {
+      showNotice(err.message, "err");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const handleCopyTempPassword = async () => {
     try {
       await navigator.clipboard.writeText(resetResult.tempPassword);
@@ -150,15 +180,51 @@ export default function ManageUsersPage() {
         />
       )}
 
-      <Card title="Manage Users" variant="navy">
+      <Card
+        title="Manage Users"
+        variant="navy"
+        actions={
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-xs font-normal text-white">
+              Factory:
+              <select
+                value={factoryFilter}
+                onChange={(e) => setFactoryFilter(e.target.value)}
+                className="rounded border border-white/40 bg-white/10 px-1.5 py-0.5 text-white text-xs focus:outline-none focus:ring-1 focus:ring-white [color-scheme:dark] text-red-300"
+              >
+                <option value="" className="text-black">
+                  All Factories
+                </option>
+                {factories.map((f) => (
+                  <option
+                    key={f.id}
+                    value={String(f.id)}
+                    className="text-black"
+                  >
+                    {f.factoryName}
+                  </option>
+                ))}
+                <option value="none" className="text-black">
+                  Unassigned
+                </option>
+              </select>
+            </label>
+            <CountBadge>
+              {filteredUsers.length} user{filteredUsers.length === 1 ? "" : "s"}
+            </CountBadge>
+          </div>
+        }
+      >
         <div className="p-4 overflow-auto">
           {loading ? (
             <div className="text-center text-sm text-slate-400 py-10">
               Loading users…
             </div>
-          ) : users.length === 0 ? (
+          ) : filteredUsers.length === 0 ? (
             <div className="text-center text-sm text-slate-400 py-10">
-              No users found.
+              {users.length === 0
+                ? "No users found."
+                : "No users match this filter."}
             </div>
           ) : (
             <table className="w-full text-sm border-collapse">
@@ -174,7 +240,7 @@ export default function ManageUsersPage() {
                 </tr>
               </thead>
               <tbody>
-                {users.map((u) => {
+                {filteredUsers.map((u) => {
                   const isSelf = u.id === currentUser?.id;
                   return (
                     <tr key={u.id} className="border-b border-app-border/60">
@@ -243,6 +309,16 @@ export default function ManageUsersPage() {
                               ? "Resetting…"
                               : "Reset Password"}
                           </Button>
+                          {!isSelf && (
+                            <Button
+                              small
+                              variant="delete"
+                              onClick={() => handleDelete(u)}
+                              disabled={deletingId === u.id}
+                            >
+                              {deletingId === u.id ? "Deleting…" : "Delete"}
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>

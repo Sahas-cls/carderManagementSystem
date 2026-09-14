@@ -56,18 +56,21 @@ function isRowComplete(row) {
 }
 
 /**
- * Popup collecting one row of details per Resigned/Terminated employee -
- * opened from CadreDetailsCard when the resignedMO/resignedTMO count is
- * entered (see handleResignedBlur). The first `rmo` rows are Machine
- * Operators, the rest Trainee Machine Operators - this split is purely
- * positional (matches the server's validateResignedEmployees), not editable
- * per-row. Shown one employee at a time via the numbered tabs (#1, #2, ...)
- * rather than a long scrolling list; Save Details is disabled until every
- * tab is complete (canSave) - a red dot on a tab marks it as still needing
+ * Popup for entering details of NEWLY resigned employees - opened from
+ * CadreDetailsCard only when the resignedMO/resignedTMO count goes UP (see
+ * handleResignedBlur), asking for details of just the new employee(s) needed
+ * to reach the new, higher total. It never needs to reconcile a count going
+ * down or offer to remove anyone - that's handled separately by the eye icon
+ * next to the Resigned/Terminated fields, which opens
+ * ResignedEmployeesListModal to view and permanently delete existing
+ * resigned employees instead. The first `rmo` rows are Machine Operators,
+ * the rest Trainee Machine Operators - this split is purely positional
+ * (matches the server's validateResignedEmployees), not editable per-row.
+ * Shown one employee at a time via the numbered tabs (#1, #2, ...) rather
+ * than a long scrolling list; Save Details is disabled until every tab is
+ * complete (canSave) - a red dot on a tab marks it as still needing
  * attention. Nothing here is saved to the daily entry's form state until
- * Save Details is clicked - Cancel just closes the popup (in-progress edits
- * are kept in this component's state until the count changes or Save is
- * clicked, so an accidental close doesn't lose typed-in details).
+ * Save Details is clicked - Cancel just closes the popup.
  */
 export default function ResignedEmployeesModal({
   isOpen,
@@ -296,24 +299,6 @@ export default function ResignedEmployeesModal({
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-teal-soft text-teal-dark">
                     {rowLabel(activeIndex)}
                   </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {/* <button
-                    type="button"
-                    disabled={activeIndex === 0}
-                    onClick={() => setActiveIndex((i) => Math.max(0, i - 1))}
-                    className="text-xs px-2 py-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    ‹ Prev
-                  </button>
-                  <button
-                    type="button"
-                    disabled={activeIndex === rows.length - 1}
-                    onClick={() => setActiveIndex((i) => Math.min(rows.length - 1, i + 1))}
-                    className="text-xs px-2 py-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    Next ›
-                  </button> */}
                 </div>
               </div>
 

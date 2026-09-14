@@ -86,4 +86,23 @@ async function resetPassword(id) {
   return { user, tempPassword };
 }
 
-module.exports = { listUsers, updateUser, setActiveStatus, resetPassword };
+/**
+ * Permanently deletes a user account. An admin can't delete their own
+ * account (same reasoning as setActiveStatus not allowing self-deactivation
+ * - avoids locking everyone, including yourself, out mid-session). Safe at
+ * the DB level: every table with a createdBy FK to users (Factory, Week,
+ * Budget, TCBudget) sets it to NULL on delete rather than blocking it or
+ * cascading - see their migrations - so this never takes other records with
+ * it, it just detaches "created by" attribution.
+ */
+async function deleteUser(id, actingUserId) {
+  const user = await getUserOr404(id);
+
+  if (Number(id) === actingUserId) {
+    throw new ApiError(400, "You can't delete your own account.");
+  }
+
+  await user.destroy();
+}
+
+module.exports = { listUsers, updateUser, setActiveStatus, resetPassword, deleteUser };

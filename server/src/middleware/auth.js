@@ -1,15 +1,17 @@
 "use strict";
 
-const { User, UserRole, Factory } = require("../../models");
-const ApiError = require("../utils/ApiError");
-const asyncHandler = require("../utils/asyncHandler");
-const { verifyToken } = require("../utils/token");
+const { User, UserRole, Factory } = require("../../models"); // imports models
+const ApiError = require("../utils/ApiError"); // error gen
+const asyncHandler = require("../utils/asyncHandler"); //
+const { verifyToken } = require("../utils/token"); // token verifier
 
 /** Requires a valid `Authorization: Bearer <token>` header; attaches the current user (with role) as req.user. */
 const requireAuth = asyncHandler(async (req, res, next) => {
   const header = req.headers.authorization || "";
+  // console.log("header: ", header);
   const [scheme, token] = header.split(" ");
-
+  console.log(`scheme ${scheme} token ${token}`);
+  // return;
   if (scheme !== "Bearer" || !token) {
     throw new ApiError(401, "Authentication required.");
   }
@@ -20,7 +22,8 @@ const requireAuth = asyncHandler(async (req, res, next) => {
   } catch {
     throw new ApiError(401, "Invalid or expired session. Please log in again.");
   }
-
+  console.log("payLoad: ", payload);
+  // return;
   const user = await User.findByPk(payload.sub, {
     include: [
       { model: UserRole, as: "role" },
@@ -41,6 +44,8 @@ const requireAuth = asyncHandler(async (req, res, next) => {
 /** Restricts a route to one of the given role names (e.g. requireRole("Administrator")). Use after requireAuth. */
 function requireRole(...roleNames) {
   const allowed = new Set(roleNames.map((r) => r.toLowerCase()));
+  // console.log("allowed: ", allowed);
+  // return;
   return (req, res, next) => {
     const roleName = req.user?.role?.userRole;
     if (!roleName || !allowed.has(roleName.toLowerCase())) {

@@ -17,6 +17,7 @@ import ManageServiceRanges from "../pages/admin/ManageServiceRanges";
 import ManageDesignationPage from "../pages/admin/ManageDesignationPage";
 import ManageDepartmentPage from "../pages/admin/ManageDepartmentPage";
 import ManageSectionPage from "../pages/admin/ManageSectionPage";
+import ManageEmployeesPage from "../pages/admin/ManageEmployeesPage";
 
 export default function AppRoutes() {
   return (
@@ -37,6 +38,7 @@ export default function AppRoutes() {
 
               <Route element={<ProtectedRoute roles={["Administrator"]} />}>
                 <Route path="/manage-users" element={<ManageUsersPage />} />
+                <Route path="/manage-employees" element={<ManageEmployeesPage />} />
                 <Route path="/factory-master" element={<ManageFactoryPage />} />
                 <Route path="/budget-master" element={<ManageBudget />} />
                 <Route

@@ -143,6 +143,17 @@ function validateBatchIdParam(req, res, next) {
   next();
 }
 
+/** Validates DELETE /daily/:batchId/resigned/:epf's params - batchId as above, epf just non-empty (it's a free-text field on the popup, no fixed format). */
+function validateResignedEmployeeParams(req, res, next) {
+  if (typeof req.params.batchId !== "string" || !BATCH_ID_RE.test(req.params.batchId)) {
+    return next(new ApiError(400, "batchId must be a valid record id."));
+  }
+  if (typeof req.params.epf !== "string" || !req.params.epf.trim()) {
+    return next(new ApiError(400, "epf must be provided."));
+  }
+  next();
+}
+
 function validateDailyRecordQuery(req, res, next) {
   try {
     const { year, month } = req.query;
@@ -205,6 +216,7 @@ function validateCadreTrendQuery(req, res, next) {
 module.exports = {
   validateDailyRecordBody,
   validateBatchIdParam,
+  validateResignedEmployeeParams,
   validateDailyRecordQuery,
   validateCadreTrendQuery,
   validatePreviousRecordQuery,

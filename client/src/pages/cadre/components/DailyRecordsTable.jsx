@@ -5,15 +5,28 @@ import { CountBadge } from "../../../components/ui/Badge";
 const TH = "border border-slate-400 p-1.5";
 const TD = "border border-slate-400 p-1.5";
 
-export default function DailyRecordsTable({ records, onEdit, onDelete }) {
+export default function DailyRecordsTable({ records, onEdit, onDelete, month, onMonthChange }) {
   return (
     <Card
       title="Daily Data Records"
       variant="teal"
       actions={
-        <CountBadge>
-          {records.length} record{records.length === 1 ? "" : "s"}
-        </CountBadge>
+        <div className="flex items-center gap-3">
+          {onMonthChange && (
+            <label className="flex items-center gap-1.5 text-xs font-normal text-white">
+              Month:
+              <input
+                type="month"
+                value={month}
+                onChange={(e) => onMonthChange(e.target.value)}
+                className="rounded border border-white/40 bg-white/10 px-1.5 py-0.5 text-white text-xs focus:outline-none focus:ring-1 focus:ring-white [color-scheme:dark]"
+              />
+            </label>
+          )}
+          <CountBadge>
+            {records.length} record{records.length === 1 ? "" : "s"}
+          </CountBadge>
+        </div>
       }
     >
       <div className="overflow-auto">
@@ -108,7 +121,8 @@ export default function DailyRecordsTable({ records, onEdit, onDelete }) {
                   colSpan={37}
                   className="p-8 text-center text-slate-400 border border-slate-400"
                 >
-                  No records yet. Select a factory and enter the cadre details
+                  No records for the selected month. Try a different month
+                  above, or select a factory and enter the cadre details
                   above.
                 </td>
               </tr>

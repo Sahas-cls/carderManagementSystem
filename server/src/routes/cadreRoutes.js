@@ -7,6 +7,7 @@ const {
   createDailyRecord,
   updateDailyRecord,
   deleteDailyRecord,
+  deleteResignedEmployee,
   getCadreTrend,
   getPreviousDailyRecord,
 } = require("../controllers/dailyCadreController");
@@ -14,6 +15,7 @@ const { validateWeeklyQuery } = require("../validators/cadreValidators");
 const {
   validateDailyRecordBody,
   validateBatchIdParam,
+  validateResignedEmployeeParams,
   validateDailyRecordQuery,
   validateCadreTrendQuery,
   validatePreviousRecordQuery,
@@ -30,6 +32,7 @@ router.get("/daily/previous", validatePreviousRecordQuery, getPreviousDailyRecor
 router.get("/daily", validateDailyRecordQuery, getDailyRecords);
 router.post("/daily", validateDailyRecordBody, createDailyRecord);
 router.put("/daily/:batchId", validateBatchIdParam, validateDailyRecordBody, updateDailyRecord);
+router.delete("/daily/:batchId/resigned/:epf", validateResignedEmployeeParams, deleteResignedEmployee);
 router.delete("/daily/:batchId", validateBatchIdParam, deleteDailyRecord);
 
 router.get("/trend", validateCadreTrendQuery, getCadreTrend);

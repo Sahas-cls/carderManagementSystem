@@ -355,66 +355,152 @@ async function createDailyRecord(payload) {
   });
 }
 
-/** Updates every row belonging to a batch (a previously submitted Daily Data Entry record). */
-async function updateDailyRecord(batchId, payload) {
+/**
+ * The actual "update every row belonging to a batch" work, factored out of
+ * updateDailyRecord so deleteResignedEmployee below can run it inside its
+ * own transaction (alongside the employee hard-delete) instead of nesting a
+ * second sequelize.transaction() call.
+ */
+async function performUpdate(batchId, payload, transaction) {
   const { factoryId, date } = payload;
 
+  const existing = await PlannedCarder.findOne({ where: { batchId }, transaction });
+  if (!existing) {
+    throw new ApiError(404, `Record ${batchId} not found.`);
+  }
+
+  const factory = await assertFactoryExists(factoryId, transaction);
+  const week = await findWeekForDate(date, transaction);
+  if (!week) {
+    throw new ApiError(
+      400,
+      `No week is configured to cover ${date}. Add it in Week Master first.`
+    );
+  }
+
+  const plannedCounts = await resolvePlannedCounts(factoryId, transaction);
+  const tcCounts = await resolveTcPlanned(factoryId, transaction);
+  const d = computeDerived({ ...payload, ...plannedCounts, ...tcCounts });
+  const rows = rowsFor(d);
+  const base = { weekId: week.id, factoryId, date };
+
+  for (const [key, Model] of Object.entries(CARDER_MODELS)) {
+    await Model.update({ ...base, ...rows[key] }, { where: { batchId }, transaction });
+  }
+  await PlannedCarder.update(
+    { ...base, budgetId: plannedCounts.budgetId },
+    { where: { batchId }, transaction }
+  );
+  await TrainingCenter.update(
+    {
+      ...base,
+      tcBudgetId: tcCounts.tcBudgetId,
+      allocated: d.tcAllocated,
+      recruit: d.tcRecruit,
+      resigned: d.tcResigned,
+      transferToProLine: d.tcTransfer,
+      transferMO: d.transferMO,
+      transferTMO: d.transferTMO,
+      actualAllocated: d.tcActual,
+      absent: d.tcAbsent,
+      present: d.tcPresent,
+    },
+    { where: { batchId }, transaction }
+  );
+
+  await employeeService.syncResignedEmployees(payload.resignedEmployees, batchId, transaction);
+
+  return buildFlatRecord({
+    batchId,
+    date,
+    week,
+    factory,
+    d,
+    createdAt: existing.createdAt,
+    resignedEmployees: payload.resignedEmployees,
+  });
+}
+
+/** Updates every row belonging to a batch (a previously submitted Daily Data Entry record). */
+async function updateDailyRecord(batchId, payload) {
+  return sequelize.transaction((transaction) => performUpdate(batchId, payload, transaction));
+}
+
+/**
+ * Raw (pre-derived) input values for one batch, shaped exactly like what the
+ * client's buildPayload() sends (see client/src/utils/cadreCalculations.js) -
+ * lets deleteResignedEmployee below reconstruct a full, valid payload for
+ * performUpdate from whatever's currently stored, without the client having
+ * to resubmit the whole Daily Data Entry form just to remove one employee.
+ */
+async function getRawPayloadForBatch(batchId, transaction) {
+  const planned = await PlannedCarder.findOne({ where: { batchId }, transaction });
+  if (!planned) {
+    throw new ApiError(404, `Record ${batchId} not found.`);
+  }
+
+  const [allocActual, newRec, resigned, absent, tc, employees] = await Promise.all([
+    AllocatedActualCarder.findOne({ where: { batchId }, transaction }),
+    NewRecruitCarder.findOne({ where: { batchId }, transaction }),
+    ResignedCarder.findOne({ where: { batchId }, transaction }),
+    AbsenteeismCarder.findOne({ where: { batchId }, transaction }),
+    TrainingCenter.findOne({ where: { batchId }, transaction }),
+    employeeService.listByBatchIds([batchId], transaction),
+  ]);
+
+  return {
+    factoryId: planned.factoryId,
+    date: planned.date,
+    allocActualMO: allocActual?.MO ?? 0,
+    allocActualTMO: allocActual?.TMO ?? 0,
+    newRecMO: newRec?.MO ?? 0,
+    newRecTMO: newRec?.TMO ?? 0,
+    resignedMO: resigned?.MO ?? 0,
+    resignedTMO: resigned?.TMO ?? 0,
+    absentMO: absent?.MO ?? 0,
+    absentTMO: absent?.TMO ?? 0,
+    tcAllocated: tc?.allocated ?? 0,
+    tcRecruit: tc?.recruit ?? 0,
+    tcResigned: tc?.resigned ?? 0,
+    tcTransfer: tc?.transferToProLine ?? 0,
+    tcAbsent: tc?.absent ?? 0,
+    transferMO: tc?.transferMO ?? 0,
+    transferTMO: tc?.transferTMO ?? 0,
+    resignedEmployees: employees.map((e) => ({
+      epf: e.epf,
+      employeeName: e.employeeName,
+      designationId: e.designationId,
+      departmentId: e.departmentId,
+      sectionId: e.sectionId,
+      dateOfJoin: e.dateOfJoin,
+      dateOfResign: e.dateOfResign,
+      resignationReasonId: e.resignationReasonId,
+      isMo: e.isMo,
+    })),
+  };
+}
+
+/**
+ * Permanently deletes one Resigned/Terminated employee - hard-deletes the
+ * Employee row itself (employeeService.deleteResignedEmployee), not just
+ * unlinking it, then immediately re-persists the rest of the batch with its
+ * Resigned MO/TMO count (and everything that derives from it - Net,
+ * Allocated_Current, Present) reduced to match, in the same transaction.
+ * Backs the per-employee Delete button in ResignedEmployeesModal.jsx.
+ */
+async function deleteResignedEmployee(batchId, epf) {
   return sequelize.transaction(async (transaction) => {
-    const existing = await PlannedCarder.findOne({ where: { batchId }, transaction });
-    if (!existing) {
-      throw new ApiError(404, `Record ${batchId} not found.`);
-    }
+    const raw = await getRawPayloadForBatch(batchId, transaction);
+    const { isMo } = await employeeService.deleteResignedEmployee(epf, batchId, transaction);
 
-    const factory = await assertFactoryExists(factoryId, transaction);
-    const week = await findWeekForDate(date, transaction);
-    if (!week) {
-      throw new ApiError(
-        400,
-        `No week is configured to cover ${date}. Add it in Week Master first.`
-      );
-    }
+    const payload = {
+      ...raw,
+      resignedMO: isMo ? Math.max(0, raw.resignedMO - 1) : raw.resignedMO,
+      resignedTMO: !isMo ? Math.max(0, raw.resignedTMO - 1) : raw.resignedTMO,
+      resignedEmployees: raw.resignedEmployees.filter((e) => e.epf !== epf),
+    };
 
-    const plannedCounts = await resolvePlannedCounts(factoryId, transaction);
-    const tcCounts = await resolveTcPlanned(factoryId, transaction);
-    const d = computeDerived({ ...payload, ...plannedCounts, ...tcCounts });
-    const rows = rowsFor(d);
-    const base = { weekId: week.id, factoryId, date };
-
-    for (const [key, Model] of Object.entries(CARDER_MODELS)) {
-      await Model.update({ ...base, ...rows[key] }, { where: { batchId }, transaction });
-    }
-    await PlannedCarder.update(
-      { ...base, budgetId: plannedCounts.budgetId },
-      { where: { batchId }, transaction }
-    );
-    await TrainingCenter.update(
-      {
-        ...base,
-        tcBudgetId: tcCounts.tcBudgetId,
-        allocated: d.tcAllocated,
-        recruit: d.tcRecruit,
-        resigned: d.tcResigned,
-        transferToProLine: d.tcTransfer,
-        transferMO: d.transferMO,
-        transferTMO: d.transferTMO,
-        actualAllocated: d.tcActual,
-        absent: d.tcAbsent,
-        present: d.tcPresent,
-      },
-      { where: { batchId }, transaction }
-    );
-
-    await employeeService.syncResignedEmployees(payload.resignedEmployees, batchId, transaction);
-
-    return buildFlatRecord({
-      batchId,
-      date,
-      week,
-      factory,
-      d,
-      createdAt: existing.createdAt,
-      resignedEmployees: payload.resignedEmployees,
-    });
+    return performUpdate(batchId, payload, transaction);
   });
 }
 
@@ -683,6 +769,7 @@ module.exports = {
   createDailyRecord,
   updateDailyRecord,
   deleteDailyRecord,
+  deleteResignedEmployee,
   listDailyRecords,
   findWeekForDate,
   getCadreTrend,

@@ -1,6 +1,6 @@
 /** Auto-clearing success/error banner. Pair with the useNotice hook. */
 export default function Notice({ message, type }) {
-  if (!message) return null;
+  if (!message) return null; 
 
   const styles =
     type === "ok"

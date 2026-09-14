@@ -27,4 +27,10 @@ const resetPassword = asyncHandler(async (req, res) => {
   res.json({ success: true, data: { user, tempPassword } });
 });
 
-module.exports = { getUsers, updateUser, setUserStatus, resetPassword };
+// DELETE /api/users/:id
+const deleteUser = asyncHandler(async (req, res) => {
+  await userService.deleteUser(req.params.id, req.user.id);
+  res.json({ success: true, data: null });
+});
+
+module.exports = { getUsers, updateUser, setUserStatus, resetPassword, deleteUser };
