@@ -41,6 +41,18 @@ export function deleteResignedEmployee(batchId, epf) {
 }
 
 /**
+ * Reactivates one Resigned/Terminated employee from an already-saved Daily
+ * Data Entry record - the Employee row itself survives (only its
+ * resignation fields are cleared), while the batch's Resigned MO/TMO count
+ * moves down by one and its Rejoined MO/TMO count moves up by one (same
+ * type). Backs the per-employee Rejoin button in ResignedEmployeesListModal.jsx;
+ * only call this for a batchId that's already been saved.
+ */
+export function rejoinResignedEmployee(batchId, epf) {
+  return api.patch(`/cadre/daily/${batchId}/resigned/${encodeURIComponent(epf)}/rejoin`);
+}
+
+/**
  * The most recent Daily Data Entry batch for a factory before the given
  * date (whatever date that was), or null if there isn't one. Backs the
  * Daily Data Entry form's prefill - see DailyEntryPage.jsx.

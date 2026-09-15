@@ -197,6 +197,28 @@ export default function DailyEntryPage() {
       return;
     }
 
+    const transferTotal =
+      (Number(form.transferMO) || 0) + (Number(form.transferTMO) || 0);
+    const transferEmployees = form.transferEmployees || [];
+    if (transferTotal > 0 && transferEmployees.length !== transferTotal) {
+      showNotice(
+        `Please enter details for all ${transferTotal} transfer employee(s) (see the Transfer popup) before submitting.`,
+        "err",
+      );
+      return;
+    }
+    if (
+      transferEmployees.some((emp) =>
+        REQUIRED_EMPLOYEE_FIELDS.some((field) => !emp[field]),
+      )
+    ) {
+      showNotice(
+        "One or more transfer employee rows are missing details - please complete them before submitting.",
+        "err",
+      );
+      return;
+    }
+
     const payload = buildPayload(plannedForm);
     setSaving(true);
     try {
@@ -285,13 +307,13 @@ export default function DailyEntryPage() {
       )}
 
       <div className="flex justify-end gap-2.5 mb-5">
-        <Button onClick={handleClear} disabled={saving}>
+        <Button  onClick={handleClear} disabled={saving}>
           Clear
         </Button>
-        <Button variant="primary" onClick={handleAdd} disabled={saving}>
+        <Button  variant="primary" onClick={handleAdd} disabled={saving}>
           {saving ? "Saving…" : isEditing ? "Update Record" : "Add to Table"}
         </Button>
-        <Button variant="teal" onClick={handleDownload}>
+        <Button  variant="teal" onClick={handleDownload}>
           Download Excel
         </Button>
       </div>

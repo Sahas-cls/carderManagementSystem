@@ -49,12 +49,19 @@ export default function DailyRecordsTable({ records, onEdit, onDelete, month, on
                 Shortage MO/TMO
               </th>
               <th className={TH} colSpan={3}>
-                New Recr. MO_Rejoined MO_TMO
-                <br />
-                released from Tr. Cen.
+                New Recruitments MO/TMO
+              </th>
+              <th className={TH} colSpan={3}>
+                Rejoined MO/TMO
+              </th>
+              <th className={TH} colSpan={3}>
+                Released from Tr. Cen. MO/TMO
               </th>
               <th className={TH} colSpan={3}>
                 Resigned/Terminated
+              </th>
+              <th className={TH} colSpan={3}>
+                Transfer
               </th>
               <th className={TH} colSpan={3}>
                 Net Increase/Decrease
@@ -100,9 +107,18 @@ export default function DailyRecordsTable({ records, onEdit, onDelete, month, on
               <th className={TH}>MO</th>
               <th className={TH}>TMO</th>
               <th className={TH}>Total</th>
-              <th className={TH}>Planned</th>
-              <th className={TH}>Allocated</th>
-              <th className={TH}>Recruit.</th>
+              <th className={TH}>MO</th>
+              <th className={TH}>TMO</th>
+              <th className={TH}>Total</th>
+              <th className={TH}>MO</th>
+              <th className={TH}>TMO</th>
+              <th className={TH}>Total</th>
+              <th className={TH}>MO</th>
+              <th className={TH}>TMO</th>
+              <th className={TH}>Total</th>
+              <th className={TH}>MO</th>
+              <th className={TH}>TMO</th>
+              <th className={TH}>Total</th>
               {/* TRAINING CENTER COLS  */}
               <th className={TH}>Planned</th>
               <th className={TH}>Allocated</th>
@@ -118,7 +134,7 @@ export default function DailyRecordsTable({ records, onEdit, onDelete, month, on
             {records.length === 0 ? (
               <tr>
                 <td
-                  colSpan={37}
+                  colSpan={47}
                   className="p-8 text-center text-slate-400 border border-slate-400"
                 >
                   No records for the selected month. Try a different month
@@ -146,9 +162,18 @@ export default function DailyRecordsTable({ records, onEdit, onDelete, month, on
                   <td className={TD}>{r.nmo}</td>
                   <td className={TD}>{r.ntmo}</td>
                   <td className={`${TD} font-bold`}>{r.nt}</td>
+                  <td className={TD}>{r.rjmo}</td>
+                  <td className={TD}>{r.rjtmo}</td>
+                  <td className={`${TD} font-bold`}>{r.rjt}</td>
+                  <td className={TD}>{r.relmo}</td>
+                  <td className={TD}>{r.reltmo}</td>
+                  <td className={`${TD} font-bold`}>{r.relt}</td>
                   <td className={TD}>{r.rmo}</td>
                   <td className={TD}>{r.rtmo}</td>
                   <td className={`${TD} font-bold`}>{r.rt}</td>
+                  <td className={TD}>{r.tfmo}</td>
+                  <td className={TD}>{r.tftmo}</td>
+                  <td className={`${TD} font-bold`}>{r.tft}</td>
                   <td className={TD}>{r.netmo}</td>
                   <td className={TD}>{r.netto}</td>
                   <td className={`${TD} font-bold`}>{r.nett}</td>

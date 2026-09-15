@@ -12,7 +12,10 @@ const {
   AllocatedActualCarder,
   ShortageCarder,
   NewRecruitCarder,
+  RejoinedCarder,
+  ReleasedFromTcCarder,
   ResignedCarder,
+  TransferCarder,
   NetCarder,
   AllocatedCurrentCarder,
   AbsenteeismCarder,
@@ -33,7 +36,10 @@ const CARDER_MODELS = {
   allocActual: AllocatedActualCarder,
   shortage: ShortageCarder,
   newRec: NewRecruitCarder,
+  rejoined: RejoinedCarder,
+  released: ReleasedFromTcCarder,
   resigned: ResignedCarder,
+  transfer: TransferCarder,
   net: NetCarder,
   current: AllocatedCurrentCarder,
   absent: AbsenteeismCarder,
@@ -91,8 +97,26 @@ function computeDerived(payload) {
   const atmo = n(payload.allocActualTMO);
   const nmo = n(payload.newRecMO);
   const ntmo = n(payload.newRecTMO);
+  const rjmo = n(payload.rejoinedMO);
+  const rjtmo = n(payload.rejoinedTMO);
+  const relmo = n(payload.releasedMO);
+  const reltmo = n(payload.releasedTMO);
   const rmo = n(payload.resignedMO);
   const rtmo = n(payload.resignedTMO);
+  const tfmo = n(payload.transferMO);
+  const tftmo = n(payload.transferTMO);
+  const transferEmployees = Array.isArray(payload.transferEmployees) ? payload.transferEmployees : [];
+  // Each Transfer row plays out one of two ways (see Employee.promotedToMo):
+  //  - originally TMO (isMo: false) + promotedToMo: true -> an internal
+  //    promotion, stays in this carder reclassified as MO (MO +1, TMO -1).
+  //  - anyone else on this list (an originally-MO row, or a TMO row without
+  //    promotedToMo) -> leaves this carder entirely (their own type -1).
+  // Computed from the actual employee rows rather than the raw tfmo/tftmo
+  // counts below, so it self-corrects whenever a row is added or removed
+  // (Delete/Rejoin) without the caller having to track deltas by hand.
+  const transferPromotedMO = transferEmployees.filter((e) => e.isMo === false && e.promotedToMo).length;
+  const transferLeavingMO = transferEmployees.filter((e) => e.isMo === true).length;
+  const transferLeavingTMO = transferEmployees.filter((e) => e.isMo === false && !e.promotedToMo).length;
   const abmo = n(payload.absentMO);
   const abtmo = n(payload.absentTMO);
 
@@ -109,15 +133,33 @@ function computeDerived(payload) {
   const shortageTotal = hasAllocActual ? pmo + ptmo - (amo + atmo) : 0;
 
   const newRecTotal = nmo + ntmo;
+  const rejoinedTotal = rjmo + rjtmo;
+  const releasedTotal = relmo + reltmo;
   const resignedTotal = rmo + rtmo;
+  const transferTotal = tfmo + tftmo;
 
-  const netMO = nmo - rmo;
-  const netTMO = ntmo - rtmo;
-  const netTotal = nmo + ntmo - (rmo + rtmo);
+  // Net/Current increase draws from three addition sources - New
+  // Recruitment, Rejoined and Released from Tr. Cen. - and two subtraction
+  // sources - Resigned/Terminated and whoever actually LEAVES via Transfer
+  // (transferLeavingMO/TMO, not the raw tfmo/tftmo counts, since a Transfer
+  // row can also be an internal promotion that stays - see
+  // transferPromotedMO above). A promotion is zero-sum on the total (MO +1,
+  // TMO -1) but does shift the MO/TMO split.
+  const netMO = nmo + rjmo + relmo - rmo - transferLeavingMO + transferPromotedMO;
+  const netTMO = ntmo + rjtmo + reltmo - rtmo - transferLeavingTMO - transferPromotedMO;
+  const netTotal =
+    nmo + ntmo + rejoinedTotal + releasedTotal - (rmo + rtmo) - (transferLeavingMO + transferLeavingTMO);
 
-  const currentMO = amo + nmo - rmo;
-  const currentTMO = atmo + ntmo - rtmo;
-  const currentTotal = amo + atmo + (nmo + ntmo) - (rmo + rtmo);
+  const currentMO = amo + nmo + rjmo + relmo - rmo - transferLeavingMO + transferPromotedMO;
+  const currentTMO = atmo + ntmo + rjtmo + reltmo - rtmo - transferLeavingTMO - transferPromotedMO;
+  const currentTotal =
+    amo +
+    atmo +
+    (nmo + ntmo) +
+    rejoinedTotal +
+    releasedTotal -
+    (rmo + rtmo) -
+    (transferLeavingMO + transferLeavingTMO);
 
   const absentTotal = abmo + abtmo;
   const presentMO = Math.max(0, currentMO - abmo);
@@ -136,11 +178,6 @@ function computeDerived(payload) {
   const tcActual = Math.max(0, tcAllocated + tcRecruit - (tcResigned + tcTransfer));
   const tcAbsent = n(payload.tcAbsent);
   const tcPresent = Math.max(0, tcActual - tcAbsent);
-  // How tcTransfer currently splits between MO and TMO (see TransferModal in
-  // CadreDetailsCard.jsx) - persisted alongside it so the client can recover
-  // the split after a reload instead of losing it to in-memory-only state.
-  const transferMO = n(payload.transferMO);
-  const transferTMO = n(payload.transferTMO);
 
   return {
     pmo,
@@ -155,9 +192,18 @@ function computeDerived(payload) {
     nmo,
     ntmo,
     newRecTotal,
+    rjmo,
+    rjtmo,
+    rejoinedTotal,
+    relmo,
+    reltmo,
+    releasedTotal,
     rmo,
     rtmo,
     resignedTotal,
+    tfmo,
+    tftmo,
+    transferTotal,
     netMO,
     netTMO,
     netTotal,
@@ -178,8 +224,6 @@ function computeDerived(payload) {
     tcActual,
     tcAbsent,
     tcPresent,
-    transferMO,
-    transferTMO,
   };
 }
 
@@ -189,7 +233,10 @@ function rowsFor(d) {
     allocActual: { MO: d.amo, TMO: d.atmo, total: d.allocActualTotal },
     shortage: { MO: d.shortageMO, TMO: d.shortageTMO, total: d.shortageTotal },
     newRec: { MO: d.nmo, TMO: d.ntmo, total: d.newRecTotal },
+    rejoined: { MO: d.rjmo, TMO: d.rjtmo, total: d.rejoinedTotal },
+    released: { MO: d.relmo, TMO: d.reltmo, total: d.releasedTotal },
     resigned: { MO: d.rmo, TMO: d.rtmo, total: d.resignedTotal },
+    transfer: { MO: d.tfmo, TMO: d.tftmo, total: d.transferTotal },
     net: { MO: d.netMO, TMO: d.netTMO, total: d.netTotal },
     current: { MO: d.currentMO, TMO: d.currentTMO, total: d.currentTotal },
     absent: { MO: d.abmo, TMO: d.abtmo, total: d.absentTotal },
@@ -197,7 +244,34 @@ function rowsFor(d) {
   };
 }
 
-function buildFlatRecord({ batchId, date, week, factory, d, createdAt, resignedEmployees = [] }) {
+/** Shared shape for one row of either resignedEmployees or transferEmployees below. */
+function flattenExitEmployee(e) {
+  return {
+    epf: e.epf,
+    employeeName: e.employeeName,
+    designationId: e.designationId,
+    departmentId: e.departmentId,
+    sectionId: e.sectionId,
+    dateOfJoin: e.dateOfJoin,
+    dateOfResign: e.dateOfResign,
+    resignationReasonId: e.resignationReasonId,
+    isMo: e.isMo,
+    // Only meaningful on a Transfer row (see Employee.promotedToMo) -
+    // carried along on resignedEmployees rows too, harmless (always null).
+    promotedToMo: e.promotedToMo,
+  };
+}
+
+function buildFlatRecord({
+  batchId,
+  date,
+  week,
+  factory,
+  d,
+  createdAt,
+  resignedEmployees = [],
+  transferEmployees = [],
+}) {
   return {
     batchId,
     date,
@@ -206,17 +280,9 @@ function buildFlatRecord({ batchId, date, week, factory, d, createdAt, resignedE
     // CadreDetailsCard.jsx's ResignedEmployeesModal) - reloaded on edit so
     // the popup can be repopulated instead of asking the user to re-enter
     // them from scratch.
-    resignedEmployees: resignedEmployees.map((e) => ({
-      epf: e.epf,
-      employeeName: e.employeeName,
-      designationId: e.designationId,
-      departmentId: e.departmentId,
-      sectionId: e.sectionId,
-      dateOfJoin: e.dateOfJoin,
-      dateOfResign: e.dateOfResign,
-      resignationReasonId: e.resignationReasonId,
-      isMo: e.isMo,
-    })),
+    resignedEmployees: resignedEmployees.map(flattenExitEmployee),
+    // Same, for the Transfer tile's employees (isTransfer: true on Employee).
+    transferEmployees: transferEmployees.map(flattenExitEmployee),
     week: week ? formatWeekLabel(week.week) : "-",
     weekId: week ? week.id : null,
     factory: factory ? factory.factoryName : "Unknown Factory",
@@ -233,9 +299,18 @@ function buildFlatRecord({ batchId, date, week, factory, d, createdAt, resignedE
     nmo: d.nmo,
     ntmo: d.ntmo,
     nt: d.newRecTotal,
+    rjmo: d.rjmo,
+    rjtmo: d.rjtmo,
+    rjt: d.rejoinedTotal,
+    relmo: d.relmo,
+    reltmo: d.reltmo,
+    relt: d.releasedTotal,
     rmo: d.rmo,
     rtmo: d.rtmo,
     rt: d.resignedTotal,
+    tfmo: d.tfmo,
+    tftmo: d.tftmo,
+    tft: d.transferTotal,
     netmo: d.netMO,
     netto: d.netTMO,
     nett: d.netTotal,
@@ -256,8 +331,6 @@ function buildFlatRecord({ batchId, date, week, factory, d, createdAt, resignedE
     tactual: d.tcActual,
     tcab: d.tcAbsent,
     tcpresent: d.tcPresent,
-    transferMO: d.transferMO,
-    transferTMO: d.transferTMO,
   };
 }
 
@@ -332,8 +405,6 @@ async function createDailyRecord(payload) {
         recruit: d.tcRecruit,
         resigned: d.tcResigned,
         transferToProLine: d.tcTransfer,
-        transferMO: d.transferMO,
-        transferTMO: d.transferTMO,
         actualAllocated: d.tcActual,
         absent: d.tcAbsent,
         present: d.tcPresent,
@@ -341,7 +412,8 @@ async function createDailyRecord(payload) {
       { transaction }
     );
 
-    await employeeService.syncResignedEmployees(payload.resignedEmployees, batchId, transaction);
+    await employeeService.syncResignedEmployees(payload.resignedEmployees, batchId, transaction, false);
+    await employeeService.syncResignedEmployees(payload.transferEmployees, batchId, transaction, true);
 
     return buildFlatRecord({
       batchId,
@@ -351,6 +423,7 @@ async function createDailyRecord(payload) {
       d,
       createdAt: tc.createdAt,
       resignedEmployees: payload.resignedEmployees,
+      transferEmployees: payload.transferEmployees,
     });
   });
 }
@@ -399,8 +472,6 @@ async function performUpdate(batchId, payload, transaction) {
       recruit: d.tcRecruit,
       resigned: d.tcResigned,
       transferToProLine: d.tcTransfer,
-      transferMO: d.transferMO,
-      transferTMO: d.transferTMO,
       actualAllocated: d.tcActual,
       absent: d.tcAbsent,
       present: d.tcPresent,
@@ -408,7 +479,8 @@ async function performUpdate(batchId, payload, transaction) {
     { where: { batchId }, transaction }
   );
 
-  await employeeService.syncResignedEmployees(payload.resignedEmployees, batchId, transaction);
+  await employeeService.syncResignedEmployees(payload.resignedEmployees, batchId, transaction, false);
+  await employeeService.syncResignedEmployees(payload.transferEmployees, batchId, transaction, true);
 
   return buildFlatRecord({
     batchId,
@@ -418,6 +490,7 @@ async function performUpdate(batchId, payload, transaction) {
     d,
     createdAt: existing.createdAt,
     resignedEmployees: payload.resignedEmployees,
+    transferEmployees: payload.transferEmployees,
   });
 }
 
@@ -439,14 +512,18 @@ async function getRawPayloadForBatch(batchId, transaction) {
     throw new ApiError(404, `Record ${batchId} not found.`);
   }
 
-  const [allocActual, newRec, resigned, absent, tc, employees] = await Promise.all([
-    AllocatedActualCarder.findOne({ where: { batchId }, transaction }),
-    NewRecruitCarder.findOne({ where: { batchId }, transaction }),
-    ResignedCarder.findOne({ where: { batchId }, transaction }),
-    AbsenteeismCarder.findOne({ where: { batchId }, transaction }),
-    TrainingCenter.findOne({ where: { batchId }, transaction }),
-    employeeService.listByBatchIds([batchId], transaction),
-  ]);
+  const [allocActual, newRec, rejoined, released, resigned, transfer, absent, tc, employees] =
+    await Promise.all([
+      AllocatedActualCarder.findOne({ where: { batchId }, transaction }),
+      NewRecruitCarder.findOne({ where: { batchId }, transaction }),
+      RejoinedCarder.findOne({ where: { batchId }, transaction }),
+      ReleasedFromTcCarder.findOne({ where: { batchId }, transaction }),
+      ResignedCarder.findOne({ where: { batchId }, transaction }),
+      TransferCarder.findOne({ where: { batchId }, transaction }),
+      AbsenteeismCarder.findOne({ where: { batchId }, transaction }),
+      TrainingCenter.findOne({ where: { batchId }, transaction }),
+      employeeService.listByBatchIds([batchId], transaction),
+    ]);
 
   return {
     factoryId: planned.factoryId,
@@ -455,8 +532,14 @@ async function getRawPayloadForBatch(batchId, transaction) {
     allocActualTMO: allocActual?.TMO ?? 0,
     newRecMO: newRec?.MO ?? 0,
     newRecTMO: newRec?.TMO ?? 0,
+    rejoinedMO: rejoined?.MO ?? 0,
+    rejoinedTMO: rejoined?.TMO ?? 0,
+    releasedMO: released?.MO ?? 0,
+    releasedTMO: released?.TMO ?? 0,
     resignedMO: resigned?.MO ?? 0,
     resignedTMO: resigned?.TMO ?? 0,
+    transferMO: transfer?.MO ?? 0,
+    transferTMO: transfer?.TMO ?? 0,
     absentMO: absent?.MO ?? 0,
     absentTMO: absent?.TMO ?? 0,
     tcAllocated: tc?.allocated ?? 0,
@@ -464,41 +547,72 @@ async function getRawPayloadForBatch(batchId, transaction) {
     tcResigned: tc?.resigned ?? 0,
     tcTransfer: tc?.transferToProLine ?? 0,
     tcAbsent: tc?.absent ?? 0,
-    transferMO: tc?.transferMO ?? 0,
-    transferTMO: tc?.transferTMO ?? 0,
-    resignedEmployees: employees.map((e) => ({
-      epf: e.epf,
-      employeeName: e.employeeName,
-      designationId: e.designationId,
-      departmentId: e.departmentId,
-      sectionId: e.sectionId,
-      dateOfJoin: e.dateOfJoin,
-      dateOfResign: e.dateOfResign,
-      resignationReasonId: e.resignationReasonId,
-      isMo: e.isMo,
-    })),
+    resignedEmployees: employees.filter((e) => !e.isTransfer).map(flattenExitEmployee),
+    transferEmployees: employees.filter((e) => e.isTransfer).map(flattenExitEmployee),
   };
 }
 
 /**
- * Permanently deletes one Resigned/Terminated employee - hard-deletes the
- * Employee row itself (employeeService.deleteResignedEmployee), not just
- * unlinking it, then immediately re-persists the rest of the batch with its
- * Resigned MO/TMO count (and everything that derives from it - Net,
+ * Permanently deletes one Resigned/Terminated or Transfer employee -
+ * hard-deletes the Employee row itself (employeeService.deleteResignedEmployee),
+ * not just unlinking it, then immediately re-persists the rest of the batch
+ * with the right tile's MO/TMO count (Resigned or Transfer, based on the
+ * deleted row's isTransfer flag - and everything that derives from it - Net,
  * Allocated_Current, Present) reduced to match, in the same transaction.
  * Backs the per-employee Delete button in ResignedEmployeesModal.jsx.
  */
 async function deleteResignedEmployee(batchId, epf) {
   return sequelize.transaction(async (transaction) => {
     const raw = await getRawPayloadForBatch(batchId, transaction);
-    const { isMo } = await employeeService.deleteResignedEmployee(epf, batchId, transaction);
+    const { isMo, isTransfer } = await employeeService.deleteResignedEmployee(epf, batchId, transaction);
+
+    const payload = { ...raw };
+    if (isTransfer) {
+      payload.transferMO = isMo ? Math.max(0, raw.transferMO - 1) : raw.transferMO;
+      payload.transferTMO = !isMo ? Math.max(0, raw.transferTMO - 1) : raw.transferTMO;
+      payload.transferEmployees = raw.transferEmployees.filter((e) => e.epf !== epf);
+    } else {
+      payload.resignedMO = isMo ? Math.max(0, raw.resignedMO - 1) : raw.resignedMO;
+      payload.resignedTMO = !isMo ? Math.max(0, raw.resignedTMO - 1) : raw.resignedTMO;
+      payload.resignedEmployees = raw.resignedEmployees.filter((e) => e.epf !== epf);
+    }
+
+    return performUpdate(batchId, payload, transaction);
+  });
+}
+
+/**
+ * Reactivates one Resigned/Terminated or Transfer employee - backs the
+ * per-employee Rejoin button in ResignedEmployeesListModal.jsx. Unlike
+ * deleteResignedEmployee, the Employee row survives
+ * (employeeService.rejoinEmployee just clears its exit fields and unlinks it
+ * from this batch): this batch's Resigned or Transfer MO/TMO count (based on
+ * the row's isTransfer flag) moves down by one and its Rejoined MO/TMO count
+ * moves up by one (same type - MO stays MO, TMO stays TMO) regardless of
+ * which tile it came from - anyone rejoining the cadre counts as Rejoined.
+ * The whole batch is then re-persisted so everything derived from those
+ * counts (Net, Allocated_Current, Present) is recomputed to match, in the
+ * same transaction.
+ */
+async function rejoinResignedEmployee(batchId, epf) {
+  return sequelize.transaction(async (transaction) => {
+    const raw = await getRawPayloadForBatch(batchId, transaction);
+    const { isMo, isTransfer } = await employeeService.rejoinEmployee(epf, batchId, transaction);
 
     const payload = {
       ...raw,
-      resignedMO: isMo ? Math.max(0, raw.resignedMO - 1) : raw.resignedMO,
-      resignedTMO: !isMo ? Math.max(0, raw.resignedTMO - 1) : raw.resignedTMO,
-      resignedEmployees: raw.resignedEmployees.filter((e) => e.epf !== epf),
+      rejoinedMO: isMo ? raw.rejoinedMO + 1 : raw.rejoinedMO,
+      rejoinedTMO: !isMo ? raw.rejoinedTMO + 1 : raw.rejoinedTMO,
     };
+    if (isTransfer) {
+      payload.transferMO = isMo ? Math.max(0, raw.transferMO - 1) : raw.transferMO;
+      payload.transferTMO = !isMo ? Math.max(0, raw.transferTMO - 1) : raw.transferTMO;
+      payload.transferEmployees = raw.transferEmployees.filter((e) => e.epf !== epf);
+    } else {
+      payload.resignedMO = isMo ? Math.max(0, raw.resignedMO - 1) : raw.resignedMO;
+      payload.resignedTMO = !isMo ? Math.max(0, raw.resignedTMO - 1) : raw.resignedTMO;
+      payload.resignedEmployees = raw.resignedEmployees.filter((e) => e.epf !== epf);
+    }
 
     return performUpdate(batchId, payload, transaction);
   });
@@ -584,9 +698,11 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
 
   const employeeRows = await employeeService.listByBatchIds([...batches.keys()]);
   const employeesByBatch = new Map();
+  const transferEmployeesByBatch = new Map();
   employeeRows.forEach((row) => {
-    if (!employeesByBatch.has(row.batchId)) employeesByBatch.set(row.batchId, []);
-    employeesByBatch.get(row.batchId).push(row);
+    const byBatch = row.isTransfer ? transferEmployeesByBatch : employeesByBatch;
+    if (!byBatch.has(row.batchId)) byBatch.set(row.batchId, []);
+    byBatch.get(row.batchId).push(row);
   });
 
   const records = [...batches.entries()].map(([batchId, batch]) => {
@@ -605,9 +721,18 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
       nmo: batch.rows.newRec?.MO ?? 0,
       ntmo: batch.rows.newRec?.TMO ?? 0,
       newRecTotal: batch.rows.newRec?.total ?? 0,
+      rjmo: batch.rows.rejoined?.MO ?? 0,
+      rjtmo: batch.rows.rejoined?.TMO ?? 0,
+      rejoinedTotal: batch.rows.rejoined?.total ?? 0,
+      relmo: batch.rows.released?.MO ?? 0,
+      reltmo: batch.rows.released?.TMO ?? 0,
+      releasedTotal: batch.rows.released?.total ?? 0,
       rmo: batch.rows.resigned?.MO ?? 0,
       rtmo: batch.rows.resigned?.TMO ?? 0,
       resignedTotal: batch.rows.resigned?.total ?? 0,
+      tfmo: batch.rows.transfer?.MO ?? 0,
+      tftmo: batch.rows.transfer?.TMO ?? 0,
+      transferTotal: batch.rows.transfer?.total ?? 0,
       netMO: batch.rows.net?.MO ?? 0,
       netTMO: batch.rows.net?.TMO ?? 0,
       netTotal: batch.rows.net?.total ?? 0,
@@ -628,8 +753,6 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
       tcActual: batch.tc?.actualAllocated ?? 0,
       tcAbsent: batch.tc?.absent ?? 0,
       tcPresent: batch.tc?.present ?? 0,
-      transferMO: batch.tc?.transferMO ?? 0,
-      transferTMO: batch.tc?.transferTMO ?? 0,
     };
 
     return buildFlatRecord({
@@ -640,6 +763,7 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
       d,
       createdAt: batch.createdAt,
       resignedEmployees: employeesByBatch.get(batchId) || [],
+      transferEmployees: transferEmployeesByBatch.get(batchId) || [],
     });
   });
 
@@ -770,6 +894,7 @@ module.exports = {
   updateDailyRecord,
   deleteDailyRecord,
   deleteResignedEmployee,
+  rejoinResignedEmployee,
   listDailyRecords,
   findWeekForDate,
   getCadreTrend,

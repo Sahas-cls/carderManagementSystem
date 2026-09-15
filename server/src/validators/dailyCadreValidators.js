@@ -6,10 +6,10 @@ const { parseOptionalId, parseRequiredId } = require("./cadreValidators");
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const BATCH_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Required fields for one row of the Resigned Employee popup (see
+// Required fields for one row of the Resigned/Transfer Employee popup (see
 // CadreDetailsCard.jsx's ResignedEmployeesModal) - Service Period isn't here,
 // it's derived from dateOfJoin/dateOfResign, never stored/trusted from the client.
-const RESIGNED_EMPLOYEE_FIELDS = [
+const EXIT_EMPLOYEE_FIELDS = [
   "epf",
   "employeeName",
   "designationId",
@@ -21,31 +21,30 @@ const RESIGNED_EMPLOYEE_FIELDS = [
 ];
 
 /**
- * Validates the resigned-employee rows the popup collected. Required
- * whenever resignedMO + resignedTMO > 0 - the user cannot submit the Daily
- * Data Entry without one fully-filled row per resigned MO/TMO, matching the
- * popup's own gating. The first `rmo` rows are tagged isMo:true (MO), the
- * rest isMo:false (TMO) - mirrors how ResignedEmployeesModal orders them.
+ * Validates the employee rows one of the two exit-tile popups collected
+ * (Resigned/Terminated or Transfer - same shape, same Employee table, only
+ * `label` differs for the error messages). Required whenever mo + tmo > 0 -
+ * the user cannot submit the Daily Data Entry without one fully-filled row
+ * per MO/TMO, matching the popup's own gating. The first `mo` rows are
+ * tagged isMo:true (MO), the rest isMo:false (TMO) - mirrors how
+ * ResignedEmployeesModal orders them.
  */
-function validateResignedEmployees(body, rmo, rtmo) {
-  const total = rmo + rtmo;
-  const rows = Array.isArray(body.resignedEmployees) ? body.resignedEmployees : [];
+function validateExitEmployees(rows, mo, tmo, label) {
+  const total = mo + tmo;
+  const list = Array.isArray(rows) ? rows : [];
 
   if (total === 0) return [];
 
-  if (rows.length !== total) {
-    throw new ApiError(
-      400,
-      `Please provide details for all ${total} resigned employee(s) (Resigned/Terminated MO+TMO).`
-    );
+  if (list.length !== total) {
+    throw new ApiError(400, `Please provide details for all ${total} ${label}(s).`);
   }
 
-  return rows.map((row, i) => {
+  return list.map((row, i) => {
     const parsed = {};
-    RESIGNED_EMPLOYEE_FIELDS.forEach((field) => {
+    EXIT_EMPLOYEE_FIELDS.forEach((field) => {
       const value = row?.[field];
       if (value === undefined || value === null || value === "") {
-        throw new ApiError(400, `Resigned employee #${i + 1}: ${field} is required.`);
+        throw new ApiError(400, `${label} #${i + 1}: ${field} is required.`);
       }
       parsed[field] = value;
     });
@@ -53,21 +52,27 @@ function validateResignedEmployees(body, rmo, rtmo) {
     ["designationId", "departmentId", "sectionId", "resignationReasonId"].forEach((field) => {
       const num = Number(parsed[field]);
       if (!Number.isInteger(num) || num <= 0) {
-        throw new ApiError(400, `Resigned employee #${i + 1}: ${field} must be a valid id.`);
+        throw new ApiError(400, `${label} #${i + 1}: ${field} must be a valid id.`);
       }
       parsed[field] = num;
     });
 
     if (!DATE_RE.test(parsed.dateOfJoin) || !DATE_RE.test(parsed.dateOfResign)) {
-      throw new ApiError(400, `Resigned employee #${i + 1}: dates must be in YYYY-MM-DD format.`);
+      throw new ApiError(400, `${label} #${i + 1}: dates must be in YYYY-MM-DD format.`);
     }
     if (parsed.dateOfResign < parsed.dateOfJoin) {
-      throw new ApiError(400, `Resigned employee #${i + 1}: Date of Resign cannot be before Date of Joining.`);
+      throw new ApiError(400, `${label} #${i + 1}: Date of Resign cannot be before Date of Joining.`);
     }
 
     parsed.epf = String(parsed.epf).trim();
     parsed.employeeName = String(parsed.employeeName).trim();
-    parsed.isMo = i < rmo;
+    parsed.isMo = i < mo;
+    // Only meaningful for a Transfer row that was originally TMO (isMo:
+    // false) - whether they're an internal promotion (stays, reclassified
+    // MO) or leaving this carder entirely. Ignored for Resigned/Terminated
+    // rows and for originally-MO Transfer rows (see Employee.promotedToMo /
+    // dailyCadreService.computeDerived).
+    parsed.promotedToMo = !!row?.promotedToMo;
     return parsed;
   });
 }
@@ -88,8 +93,14 @@ const NUMERIC_FIELDS = [
   "allocActualTMO",
   "newRecMO",
   "newRecTMO",
+  "rejoinedMO",
+  "rejoinedTMO",
+  "releasedMO",
+  "releasedTMO",
   "resignedMO",
   "resignedTMO",
+  "transferMO",
+  "transferTMO",
   "absentMO",
   "absentTMO",
   "tcAllocated",
@@ -97,8 +108,6 @@ const NUMERIC_FIELDS = [
   "tcResigned",
   "tcTransfer",
   "tcAbsent",
-  "transferMO",
-  "transferTMO",
 ];
 
 /** Validates the create/update body. A field left out of the request stays out of req.body (see the allocActual "was it entered?" check in the service). */
@@ -123,10 +132,17 @@ function validateDailyRecordBody(req, res, next) {
       parsed[field] = num;
     });
 
-    parsed.resignedEmployees = validateResignedEmployees(
-      body,
+    parsed.resignedEmployees = validateExitEmployees(
+      body.resignedEmployees,
       parsed.resignedMO || 0,
-      parsed.resignedTMO || 0
+      parsed.resignedTMO || 0,
+      "resigned employee"
+    );
+    parsed.transferEmployees = validateExitEmployees(
+      body.transferEmployees,
+      parsed.transferMO || 0,
+      parsed.transferTMO || 0,
+      "transfer employee"
     );
 
     req.body = parsed;

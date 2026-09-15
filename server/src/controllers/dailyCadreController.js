@@ -33,6 +33,12 @@ const deleteResignedEmployee = asyncHandler(async (req, res) => {
   res.json({ success: true, data: record });
 });
 
+// PATCH /api/cadre/daily/:batchId/resigned/:epf/rejoin
+const rejoinResignedEmployee = asyncHandler(async (req, res) => {
+  const record = await dailyCadreService.rejoinResignedEmployee(req.params.batchId, req.params.epf);
+  res.json({ success: true, data: record });
+});
+
 // GET /api/cadre/trend?year=&factoryId=
 const getCadreTrend = asyncHandler(async (req, res) => {
   const trend = await dailyCadreService.getCadreTrend(req.filters);
@@ -53,6 +59,7 @@ module.exports = {
   updateDailyRecord,
   deleteDailyRecord,
   deleteResignedEmployee,
+  rejoinResignedEmployee,
   getCadreTrend,
   getPreviousDailyRecord,
 };

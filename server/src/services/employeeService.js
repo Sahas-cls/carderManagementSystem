@@ -13,19 +13,24 @@ const {
 const ApiError = require("../utils/ApiError");
 
 /**
- * Creates/updates the Employee rows for the Resigned Employee popup on the
- * Daily Data Entry form (see CadreDetailsCard.jsx's ResignedEmployeesModal)
- * and links them to this daily entry's batch.
+ * Creates/updates the Employee rows for the Resigned/Transfer Employee popup
+ * on the Daily Data Entry form (see CadreDetailsCard.jsx's
+ * ResignedEmployeesModal) and links them to this daily entry's batch.
+ * `isTransfer` tags which of the two tiles this call is syncing for (false =
+ * Resigned/Terminated, true = Transfer) - dailyCadreService.performUpdate
+ * calls this once per tile for the same batch, so the unlink step below is
+ * scoped to rows of that same type only: an employee of the OTHER type still
+ * linked to this batch must not be touched by this call.
  *
  * `epf` is upserted rather than always inserted: epf is unique on Employee,
  * and re-saving the same daily entry (edit) resubmits the same rows, so an
- * insert-only approach would collide on epf. Any employee previously linked
- * to this batch but no longer present in `employees` is unlinked (batchId/
- * isMo cleared) rather than deleted - the employee record itself is real
- * master data (their resignation happened), only its tie to this particular
- * entry is undone.
+ * insert-only approach would collide on epf. Any employee of this type
+ * previously linked to this batch but no longer present in `employees` is
+ * unlinked (batchId/isMo/isTransfer cleared) rather than deleted - the
+ * employee record itself is real master data (their exit happened), only
+ * its tie to this particular entry is undone.
  */
-async function syncResignedEmployees(employees, batchId, transaction) {
+async function syncResignedEmployees(employees, batchId, transaction, isTransfer = false) {
   const list = Array.isArray(employees) ? employees : [];
 
   for (const emp of list) {
@@ -39,6 +44,11 @@ async function syncResignedEmployees(employees, batchId, transaction) {
       resignationReasonId: emp.resignationReasonId ?? null,
       batchId,
       isMo: emp.isMo,
+      isTransfer,
+      // Only meaningful for a Transfer-tile row (isTransfer: true) that was
+      // originally TMO - whether they're staying (promoted to MO) or
+      // leaving. Ignored/null for Resigned/Terminated rows.
+      promotedToMo: isTransfer ? !!emp.promotedToMo : null,
     };
 
     const [record, created] = await Employee.findOrCreate({
@@ -52,45 +62,77 @@ async function syncResignedEmployees(employees, batchId, transaction) {
   }
 
   const currentEpfs = list.map((emp) => emp.epf);
-  const unlinkWhere = { batchId };
+  const unlinkWhere = { batchId, isTransfer };
   if (currentEpfs.length) {
     unlinkWhere.epf = { [Op.notIn]: currentEpfs };
   }
   await Employee.update(
-    { batchId: null, isMo: null },
+    { batchId: null, isMo: null, isTransfer: null, promotedToMo: null },
     { where: unlinkWhere, transaction },
   );
 }
 
 /**
- * Permanently deletes one resigned employee (a real hard delete, unlike
- * syncResignedEmployees' unlink-only trimming above) - backs the per-employee
- * Delete button in ResignedEmployeesModal.jsx. Scoped to the batch the
- * employee is currently linked to, so a stray epf can't delete unrelated
- * master data via this route. Returns the deleted row's isMo (true = MO,
- * false = TMO) so the caller can decrement the right Resigned/Terminated
- * count; throws 404 if that epf isn't currently linked to this batch (e.g.
- * it was only added to the form this session and never actually saved yet).
+ * Permanently deletes one resigned/transferred employee (a real hard delete,
+ * unlike syncResignedEmployees' unlink-only trimming above) - backs the
+ * per-employee Delete button in ResignedEmployeesModal.jsx. Scoped to the
+ * batch the employee is currently linked to, so a stray epf can't delete
+ * unrelated master data via this route. Returns the deleted row's isMo (true
+ * = MO, false = TMO) and isTransfer (true = Transfer tile, false = Resigned/
+ * Terminated tile) so the caller can decrement the right tile's count;
+ * throws 404 if that epf isn't currently linked to this batch (e.g. it was
+ * only added to the form this session and never actually saved yet).
  */
 async function deleteResignedEmployee(epf, batchId, transaction) {
   const employee = await Employee.findOne({ where: { epf, batchId }, transaction });
   if (!employee) {
-    throw new ApiError(404, `Resigned employee ${epf} is not on record ${batchId}.`);
+    throw new ApiError(404, `Employee ${epf} is not on record ${batchId}.`);
   }
-  const isMo = employee.isMo;
+  const { isMo, isTransfer } = employee;
   // Employee is a paranoid model (soft-delete by default: destroy() just
   // sets deletedAt and the row stays in the table, invisible only to
   // Sequelize's own default queries). force:true here issues a real SQL
   // DELETE so the row is actually gone from the database, matching what
   // this button promises the user.
   await employee.destroy({ transaction, force: true });
-  return { epf, isMo };
+  return { epf, isMo, isTransfer };
+}
+
+/**
+ * Reactivates one resigned/transferred employee - the "Rejoin" counterpart
+ * to deleteResignedEmployee above. Instead of hard-deleting the Employee
+ * row, clears its exit fields (dateOfResign, resignationReasonId) and
+ * unlinks it from the batch (batchId/isMo/isTransfer), so the employee is
+ * active again and reappears as ordinary employee master data. Returns the
+ * row's isMo and isTransfer as they were before being cleared, so the
+ * caller can decrement the right tile (Resigned or Transfer) and increment
+ * Rejoined by the right type; throws 404 if that epf isn't currently linked
+ * to this batch.
+ */
+async function rejoinEmployee(epf, batchId, transaction) {
+  const employee = await Employee.findOne({ where: { epf, batchId }, transaction });
+  if (!employee) {
+    throw new ApiError(404, `Employee ${epf} is not on record ${batchId}.`);
+  }
+  const { isMo, isTransfer } = employee;
+  await employee.update(
+    {
+      dateOfResign: null,
+      resignationReasonId: null,
+      batchId: null,
+      isMo: null,
+      isTransfer: null,
+      promotedToMo: null,
+    },
+    { transaction },
+  );
+  return { epf, isMo, isTransfer };
 }
 
 /** Unlinks every employee tied to a batch (used when the daily entry itself is deleted) - doesn't delete the employee record. */
 async function unlinkBatch(batchId, transaction) {
   await Employee.update(
-    { batchId: null, isMo: null },
+    { batchId: null, isMo: null, isTransfer: null, promotedToMo: null },
     { where: { batchId }, transaction },
   );
 }
@@ -124,12 +166,20 @@ function formatDuration(totalMonths) {
  * This year's resigned employees, optionally narrowed to one factory.
  * Employee has no factoryId of its own, so a factory filter is resolved via
  * batchId -> the ResignedCarder row for the daily entry that recorded the
- * resignation - shared by every LTO analysis below.
+ * resignation - shared by every LTO analysis below. Transfer-tile exits
+ * (isTransfer: true - e.g. a promotion off the MO/TMO carder) are excluded:
+ * LTO/attrition analysis is about people actually leaving, not moving
+ * within the company.
  */
 async function getResignedEmployeesForYear({ factoryId, year, include } = {}) {
   const y = year || new Date().getFullYear();
   const employees = await Employee.findAll({
-    where: { dateOfResign: { [Op.between]: [`${y}-01-01`, `${y}-12-31`] } },
+    where: {
+      dateOfResign: { [Op.between]: [`${y}-01-01`, `${y}-12-31`] },
+      // NULL (legacy rows from before the Transfer tile existed) counts as
+      // "not a transfer" here, same as it always implicitly did.
+      [Op.or]: [{ isTransfer: false }, { isTransfer: null }],
+    },
     include,
   });
 
@@ -328,6 +378,7 @@ async function deleteEmployeeRecord(id) {
 module.exports = {
   syncResignedEmployees,
   deleteResignedEmployee,
+  rejoinEmployee,
   unlinkBatch,
   listByBatchIds,
   getServiceLengthAnalysis,

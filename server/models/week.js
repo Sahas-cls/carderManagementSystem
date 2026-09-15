@@ -44,6 +44,14 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "weekId",
         as: "resignedCarder",
       });
+      Week.hasMany(models.RejoinedCarder, {
+        foreignKey: "weekId",
+        as: "rejoinedCarder",
+      });
+      Week.hasMany(models.ReleasedFromTcCarder, {
+        foreignKey: "weekId",
+        as: "releasedFromTcCarder",
+      });
       Week.hasMany(models.NetCarder, {
         foreignKey: "weekId",
         as: "netCarder",

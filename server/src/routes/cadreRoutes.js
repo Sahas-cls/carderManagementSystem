@@ -8,6 +8,7 @@ const {
   updateDailyRecord,
   deleteDailyRecord,
   deleteResignedEmployee,
+  rejoinResignedEmployee,
   getCadreTrend,
   getPreviousDailyRecord,
 } = require("../controllers/dailyCadreController");
@@ -33,6 +34,7 @@ router.get("/daily", validateDailyRecordQuery, getDailyRecords);
 router.post("/daily", validateDailyRecordBody, createDailyRecord);
 router.put("/daily/:batchId", validateBatchIdParam, validateDailyRecordBody, updateDailyRecord);
 router.delete("/daily/:batchId/resigned/:epf", validateResignedEmployeeParams, deleteResignedEmployee);
+router.patch("/daily/:batchId/resigned/:epf/rejoin", validateResignedEmployeeParams, rejoinResignedEmployee);
 router.delete("/daily/:batchId", validateBatchIdParam, deleteDailyRecord);
 
 router.get("/trend", validateCadreTrendQuery, getCadreTrend);

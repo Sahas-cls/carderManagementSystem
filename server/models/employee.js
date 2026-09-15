@@ -78,6 +78,28 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.BOOLEAN,
         allowNull: true,
       },
+      // false = a true resignation/termination (Resigned/Terminated tile),
+      // true = a Transfer-tile row - see promotedToMo below for how that
+      // actually plays out. Null when batchId is null. Splits what used to
+      // be one combined "Resigned/Terminated" bucket into two, while still
+      // sharing this same Employee row/fields (dateOfJoin, dateOfResign,
+      // reason...).
+      isTransfer: {
+        type: DataTypes.BOOLEAN,
+        allowNull: true,
+      },
+      // Only meaningful for a Transfer-tile row that was originally TMO
+      // (isTransfer: true, isMo: false):
+      //   - true:  an internal promotion - stays in this carder, reclassified
+      //     TMO -> MO (Allocated_Current MO +1, TMO -1).
+      //   - false (or ignored on an originally-MO transfer row): leaves this
+      //     carder entirely, e.g. transferred to another factory/department
+      //     (Allocated_Current -1 for their own type).
+      // Null otherwise.
+      promotedToMo: {
+        type: DataTypes.BOOLEAN,
+        allowNull: true,
+      },
       dateOfJoin: {
         type: DataTypes.DATEONLY,
         allowNull: false,

@@ -26,7 +26,7 @@ function TransferModal({
 
   useEffect(() => {
     if (isOpen) {
-      if (data && data.moCount !== undefined) {
+      if (hasExistingTransfer && data) {
         setLocalData({
           moCount: data.moCount || "",
           tmoCount: data.tmoCount || "",
@@ -41,7 +41,7 @@ function TransferModal({
       }
       setError("");
     }
-  }, [isOpen, data, tcTransferCount]);
+  }, [isOpen, data, tcTransferCount, hasExistingTransfer]);
 
   const handleChange = (field, value) => {
     const newData = { ...localData, [field]: value };
@@ -127,8 +127,7 @@ function TransferModal({
               line
             </p>
             <p className="text-xs text-gray-500 mt-1">
-              These will be added to "New Recr. MO_" and "Rejoined MO_TMO"
-              counts
+              This split will fill the "Released from Tr. Cen." MO/TMO tile
             </p>
           </div>
 
@@ -213,19 +212,17 @@ export default function CadreDetailsCard({
   const [showPopup, setShowPopup] = useState(false);
   const [showResignedPopup, setShowResignedPopup] = useState(false);
   const [showResignedListPopup, setShowResignedListPopup] = useState(false);
+  const [showTransferPopup, setShowTransferPopup] = useState(false);
+  const [showTransferListPopup, setShowTransferListPopup] = useState(false);
 
-  // The "New Recr. MO_/Rejoined MO_TMO" total is always base (regular
-  // recruitment/rejoin activity) + whatever the TC transfer currently
-  // contributes. form.transferMO/transferTMO persist that contribution
-  // (saved to the record, see cadreCalculations.js buildPayload/recordToForm)
-  // so it survives a page refresh - re-opening a saved record for editing
-  // recovers the exact same split it was saved with, instead of losing it to
-  // component state. This also means create and edit behave identically:
-  // both start from whatever transferMO/TMO the form currently carries (0
-  // for a brand-new record).
-  const transferMO = parseInt(form.transferMO) || 0;
-  const transferTMO = parseInt(form.transferTMO) || 0;
-  const hasExistingTransfer = transferMO + transferTMO > 0;
+  // "Released from Tr. Cen." MO/TMO isn't typed in directly - it's set
+  // entirely by the "Transfer to Pro Line" split popup below, and persists
+  // as its own field (see cadreCalculations.js buildPayload/recordToForm) so
+  // re-opening a saved record for editing recovers the exact split it was
+  // saved with, instead of losing it to component state.
+  const releasedMO = parseInt(form.releasedMO) || 0;
+  const releasedTMO = parseInt(form.releasedTMO) || 0;
+  const hasExistingTransfer = releasedMO + releasedTMO > 0;
 
   // Handle blur event on tcTransfer field
   const handleTcTransferBlur = (e) => {
@@ -240,15 +237,11 @@ export default function CadreDetailsCard({
     const value = e.target.value;
     onChange(field, value);
 
-    // If the user clears the transfer count, undo its contribution: fall
-    // back to the base MO/TMO (before this transfer) and zero the split.
+    // If the user clears the transfer count, zero out the Released from Tr.
+    // Cen. split it produced.
     if ((parseInt(value) || 0) === 0 && hasExistingTransfer) {
-      const baseMO = (parseInt(form.newRecMO) || 0) - transferMO;
-      const baseTMO = (parseInt(form.newRecTMO) || 0) - transferTMO;
-      onChange("newRecMO", Math.max(0, baseMO).toString());
-      onChange("newRecTMO", Math.max(0, baseTMO).toString());
-      onChange("transferMO", "0");
-      onChange("transferTMO", "0");
+      onChange("releasedMO", "0");
+      onChange("releasedTMO", "0");
     }
   };
 
@@ -256,18 +249,8 @@ export default function CadreDetailsCard({
     const mo = parseInt(data.moCount) || 0;
     const tmo = parseInt(data.tmoCount) || 0;
 
-    // Recover the base (non-transfer) MO/TMO by backing out whatever this
-    // record's transfer currently contributes, then apply the new split on
-    // top of that base - this replaces the old contribution rather than
-    // piling the new one on top of it, so re-editing the same transfer
-    // (including after a refresh) always lands on the correct total.
-    const baseMO = (parseInt(form.newRecMO) || 0) - transferMO;
-    const baseTMO = (parseInt(form.newRecTMO) || 0) - transferTMO;
-
-    onChange("newRecMO", (baseMO + mo).toString());
-    onChange("newRecTMO", (baseTMO + tmo).toString());
-    onChange("transferMO", mo.toString());
-    onChange("transferTMO", tmo.toString());
+    onChange("releasedMO", mo.toString());
+    onChange("releasedTMO", tmo.toString());
   };
 
   // Handle blur on the Resigned/Terminated MO/TMO fields. Raising the count
@@ -291,6 +274,22 @@ export default function CadreDetailsCard({
     }
   };
 
+  // Same idea as handleResignedBlur above, for the Transfer tile (e.g. a
+  // promotion that moves someone off this MO/TMO carder) - it shares the
+  // same Employee table and popups, just tagged isTransfer instead.
+  const transferMO = parseInt(form.transferMO) || 0;
+  const transferTMO = parseInt(form.transferTMO) || 0;
+  const transferTotal = transferMO + transferTMO;
+  const transferEmployees = form.transferEmployees || [];
+
+  const handleTransferBlur = () => {
+    if (transferTotal === 0 && transferEmployees.length > 0) {
+      onChange("transferEmployees", []);
+    } else if (transferTotal > transferEmployees.length) {
+      setShowTransferPopup(true);
+    }
+  };
+
   return (
     <>
       <TransferModal
@@ -299,9 +298,9 @@ export default function CadreDetailsCard({
         data={
           hasExistingTransfer
             ? {
-                moCount: transferMO.toString(),
-                tmoCount: transferTMO.toString(),
-                total: (transferMO + transferTMO).toString(),
+                moCount: releasedMO.toString(),
+                tmoCount: releasedTMO.toString(),
+                total: (releasedMO + releasedTMO).toString(),
               }
             : undefined
         }
@@ -327,6 +326,8 @@ export default function CadreDetailsCard({
         employees={resignedEmployees}
         rmo={resignedMO}
         rtmo={resignedTMO}
+        rjmo={parseInt(form.rejoinedMO) || 0}
+        rjtmo={parseInt(form.rejoinedTMO) || 0}
         factoryId={form.factoryId}
         batchId={batchId}
         onEmployeesChange={(rows) => onChange("resignedEmployees", rows)}
@@ -334,7 +335,46 @@ export default function CadreDetailsCard({
           onChange("resignedMO", String(newRmo));
           onChange("resignedTMO", String(newRtmo));
         }}
+        onRejoinedCountsChange={(newRjmo, newRjtmo) => {
+          onChange("rejoinedMO", String(newRjmo));
+          onChange("rejoinedTMO", String(newRjtmo));
+        }}
         onDeleted={onEmployeeDeleted}
+      />
+
+      <ResignedEmployeesModal
+        isOpen={showTransferPopup}
+        onClose={() => setShowTransferPopup(false)}
+        initialEmployees={transferEmployees}
+        rmo={transferMO}
+        rtmo={transferTMO}
+        factoryId={form.factoryId}
+        entryDate={form.date}
+        onSave={(rows) => onChange("transferEmployees", rows)}
+        isTransfer
+      />
+
+      <ResignedEmployeesListModal
+        isOpen={showTransferListPopup}
+        onClose={() => setShowTransferListPopup(false)}
+        employees={transferEmployees}
+        rmo={transferMO}
+        rtmo={transferTMO}
+        rjmo={parseInt(form.rejoinedMO) || 0}
+        rjtmo={parseInt(form.rejoinedTMO) || 0}
+        factoryId={form.factoryId}
+        batchId={batchId}
+        onEmployeesChange={(rows) => onChange("transferEmployees", rows)}
+        onCountsChange={(newMo, newTmo) => {
+          onChange("transferMO", String(newMo));
+          onChange("transferTMO", String(newTmo));
+        }}
+        onRejoinedCountsChange={(newRjmo, newRjtmo) => {
+          onChange("rejoinedMO", String(newRjmo));
+          onChange("rejoinedTMO", String(newRjtmo));
+        }}
+        onDeleted={onEmployeeDeleted}
+        isTransfer
       />
 
       <Card title="Cadre / Recruitment Details">
@@ -401,18 +441,7 @@ export default function CadreDetailsCard({
             />
           </CadreGroup>
 
-          <CadreGroup
-            variant="blue"
-            title={
-              <>
-                New Recr. MO_
-                <br />
-                Rejoined MO_TMO
-                <br />
-                released from Tr. Cen.
-              </>
-            }
-          >
+          <CadreGroup variant="blue" title="New Recruitments MO/TMO">
             <GroupField
               label="MO"
               type="number"
@@ -435,16 +464,51 @@ export default function CadreDetailsCard({
             />
           </CadreGroup>
 
+          <CadreGroup variant="blue" title="Rejoined MO/TMO">
+            <GroupField
+              label="MO"
+              type="number"
+              min="0"
+              value={form.rejoinedMO}
+              onChange={setField("rejoinedMO")}
+            />
+            <GroupField
+              label="TMO"
+              type="number"
+              min="0"
+              value={form.rejoinedTMO}
+              onChange={setField("rejoinedTMO")}
+            />
+            <GroupField
+              label="Total"
+              total
+              readOnly
+              value={totals.rejoinedTotal}
+            />
+          </CadreGroup>
+
+          <CadreGroup
+            variant="blue"
+            title={
+              <>
+                Released from
+                <br />
+                Tr. Cen. MO/TMO
+              </>
+            }
+          >
+            <GroupField label="MO" total readOnly value={releasedMO} />
+            <GroupField label="TMO" total readOnly value={releasedTMO} />
+            <GroupField
+              label="Total"
+              total
+              readOnly
+              value={totals.releasedTotal}
+            />
+          </CadreGroup>
+
           <div className="relative">
-            <CadreGroup
-              title={
-                <>
-                  Resigned /
-                  <br />
-                  Terminated
-                </>
-              }
-            >
+            <CadreGroup variant="red" title={<>Resigned </>}>
               <GroupField
                 label="MO"
                 type="number"
@@ -482,6 +546,53 @@ export default function CadreDetailsCard({
               className={`absolute cursor-pointer top-2 right-1 min-w-6 shadow-md min-h-6 p-1 rounded-full border text-xs flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                 resignedEmployees.length !== resignedTotal &&
                 resignedEmployees.length > 0
+                  ? "bg-orange-soft hidden border-orange-300 text-[#89511d] hover:bg-orange-100"
+                  : "bg-white block border-slate-300 text-slate-500 hover:bg-slate-50 hover:text-slate-700 animate-pulse"
+              }`}
+            >
+              <FaEye color="blue" size={20} />
+            </button>
+          </div>
+
+          <div className="relative">
+            <CadreGroup title="Transfer" variant="red">
+              <GroupField
+                label="MO"
+                type="number"
+                min="0"
+                value={form.transferMO}
+                onChange={setField("transferMO")}
+                onBlur={handleTransferBlur}
+              />
+              <GroupField
+                label="TMO"
+                type="number"
+                min="0"
+                value={form.transferTMO}
+                onChange={setField("transferTMO")}
+                onBlur={handleTransferBlur}
+              />
+              <GroupField
+                label="Total"
+                total
+                readOnly
+                value={totals.transferTotal}
+              />
+            </CadreGroup>
+            <button
+              type="button"
+              onClick={() => setShowTransferListPopup(true)}
+              disabled={transferEmployees.length === 0}
+              title={
+                transferEmployees.length === 0
+                  ? "No transfer employees on file yet"
+                  : transferEmployees.length !== transferTotal
+                    ? `View / delete transfer employees - ${transferEmployees.length} on file vs ${transferTotal} expected`
+                    : "View / delete transfer employees"
+              }
+              className={`absolute cursor-pointer top-2 right-1 min-w-6 shadow-md min-h-6 p-1 rounded-full border text-xs flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                transferEmployees.length !== transferTotal &&
+                transferEmployees.length > 0
                   ? "bg-orange-soft hidden border-orange-300 text-[#89511d] hover:bg-orange-100"
                   : "bg-white block border-slate-300 text-slate-500 hover:bg-slate-50 hover:text-slate-700 animate-pulse"
               }`}

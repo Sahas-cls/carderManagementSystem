@@ -55,19 +55,9 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: 0,
       },
-      // How transferToProLine currently splits between MO and TMO - persisted
-      // so the client can recover the exact split (and back out the "base"
-      // New Recr. MO/TMO before this transfer) after a page refresh.
-      transferMO: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-        defaultValue: 0,
-      },
-      transferTMO: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-        defaultValue: 0,
-      },
+      // How transferToProLine splits between MO and TMO now lives in its own
+      // table (see releasedfromtccarder.js / ReleasedFromTcCarder), fed by
+      // the "Transfer to Pro Line" split popup in CadreDetailsCard.jsx.
       actualAllocated: {
         type: DataTypes.INTEGER,
         allowNull: false,

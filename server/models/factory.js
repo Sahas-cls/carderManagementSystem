@@ -53,6 +53,14 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "factoryId",
         as: "resignedCarder",
       });
+      Factory.hasMany(models.RejoinedCarder, {
+        foreignKey: "factoryId",
+        as: "rejoinedCarder",
+      });
+      Factory.hasMany(models.ReleasedFromTcCarder, {
+        foreignKey: "factoryId",
+        as: "releasedFromTcCarder",
+      });
       Factory.hasMany(models.NetCarder, {
         foreignKey: "factoryId",
         as: "netCarder",

@@ -14,6 +14,9 @@ const EMPTY_ROW = {
   dateOfJoin: "",
   dateOfResign: "",
   resignationReasonId: "",
+  // Only shown/meaningful for a Transfer-tile TMO row - see the "Outcome"
+  // dropdown below. Defaults to "leaves this carder".
+  promotedToMo: false,
 };
 
 const REQUIRED_FIELDS = [
@@ -56,21 +59,29 @@ function isRowComplete(row) {
 }
 
 /**
- * Popup for entering details of NEWLY resigned employees - opened from
- * CadreDetailsCard only when the resignedMO/resignedTMO count goes UP (see
- * handleResignedBlur), asking for details of just the new employee(s) needed
- * to reach the new, higher total. It never needs to reconcile a count going
- * down or offer to remove anyone - that's handled separately by the eye icon
- * next to the Resigned/Terminated fields, which opens
- * ResignedEmployeesListModal to view and permanently delete existing
- * resigned employees instead. The first `rmo` rows are Machine Operators,
- * the rest Trainee Machine Operators - this split is purely positional
- * (matches the server's validateResignedEmployees), not editable per-row.
- * Shown one employee at a time via the numbered tabs (#1, #2, ...) rather
- * than a long scrolling list; Save Details is disabled until every tab is
- * complete (canSave) - a red dot on a tab marks it as still needing
- * attention. Nothing here is saved to the daily entry's form state until
- * Save Details is clicked - Cancel just closes the popup.
+ * Popup for entering details of NEWLY resigned or transferred employees -
+ * opened from CadreDetailsCard only when the relevant MO/TMO count goes UP
+ * (see handleResignedBlur/handleTransferBlur), asking for details of just
+ * the new employee(s) needed to reach the new, higher total. It never needs
+ * to reconcile a count going down or offer to remove anyone - that's handled
+ * separately by the eye icon next to the tile, which opens
+ * ResignedEmployeesListModal to view and permanently delete/rejoin existing
+ * employees instead. The first `rmo` rows are Machine Operators, the rest
+ * Trainee Machine Operators - this split is purely positional (matches the
+ * server's validateExitEmployees), not editable per-row. Shown one employee
+ * at a time via the numbered tabs (#1, #2, ...) rather than a long scrolling
+ * list; Save Details is disabled until every tab is complete (canSave) - a
+ * red dot on a tab marks it as still needing attention. Nothing here is
+ * saved to the daily entry's form state until Save Details is clicked -
+ * Cancel just closes the popup.
+ *
+ * `isTransfer` (default false) picks Transfer tile vs Resigned/Terminated
+ * tile copy, and - only for Transfer's TMO rows - shows an extra "Outcome"
+ * dropdown (promotedToMo: internal promotion that stays in this carder,
+ * reclassified MO, vs a transfer that leaves it entirely - see
+ * dailyCadreService.computeDerived for the resulting MO/TMO math). The rest
+ * of the row shape and validation are identical either way; the caller
+ * (CadreDetailsCard) decides which form field the saved rows land in.
  */
 export default function ResignedEmployeesModal({
   isOpen,
@@ -81,7 +92,12 @@ export default function ResignedEmployeesModal({
   factoryId,
   entryDate,
   onSave,
+  isTransfer = false,
 }) {
+  const employeeLabel = isTransfer ? "transfer" : "resigned";
+  const modalTitle = isTransfer
+    ? "Transfer Employee Details"
+    : "Resigned / Terminated Employee Details";
   const total = rmo + rtmo;
   const [rows, setRows] = useState([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -210,7 +226,7 @@ export default function ResignedEmployeesModal({
       <div className="relative bg-white rounded-lg shadow-xl w-full max-w-3xl mx-4 p-6 max-h-[90vh] flex flex-col">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold text-gray-800">
-            Resigned / Terminated Employee Details
+            {modalTitle}
           </h2>
           <button
             onClick={onClose}
@@ -234,9 +250,9 @@ export default function ResignedEmployeesModal({
 
         <div className="p-3 rounded-md mb-4 bg-blue-50 flex items-center justify-between gap-3 flex-wrap">
           <p className="text-sm text-gray-600">
-            Enter details for all <strong>{total}</strong> resigned employee(s)
-            - <strong>{rmo}</strong> MO, <strong>{rtmo}</strong> TMO. This
-            cannot be saved without all fields filled in.
+            Enter details for all <strong>{total}</strong> {employeeLabel}{" "}
+            employee(s) - <strong>{rmo}</strong> MO, <strong>{rtmo}</strong>{" "}
+            TMO. This cannot be saved without all fields filled in.
           </p>
           <span
             className={`text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap ${
@@ -301,6 +317,31 @@ export default function ResignedEmployeesModal({
                   </span>
                 </div>
               </div>
+
+              {isTransfer && rowLabel(activeIndex) === "TMO" && (
+                <Field label="Outcome" className="col-span-full">
+                  <select
+                    className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={rows[activeIndex].promotedToMo ? "stay" : "leave"}
+                    onChange={(e) =>
+                      updateRow(
+                        activeIndex,
+                        "promotedToMo",
+                        e.target.value === "stay",
+                      )
+                    }
+                  >
+                    <option value="leave">Transferred out - leaves this carder</option>
+                    <option value="stay">
+                      Promoted to MO - stays in this carder
+                    </option>
+                  </select>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Promoted to MO moves them from Allocated_Current TMO to
+                    MO instead of removing them from this carder.
+                  </p>
+                </Field>
+              )}
 
               <Field label="EPF No.">
                 <input
