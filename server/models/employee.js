@@ -12,6 +12,12 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "designationId",
         as: "designation",
       });
+      // Only set for a Transfer-tile row (isTransfer: true) - see
+      // newDesignationId below.
+      Employee.belongsTo(models.Designation, {
+        foreignKey: "newDesignationId",
+        as: "newDesignation",
+      });
       Employee.belongsTo(models.Department, {
         foreignKey: "departmentId",
         as: "department",
@@ -99,6 +105,18 @@ module.exports = (sequelize, DataTypes) => {
       promotedToMo: {
         type: DataTypes.BOOLEAN,
         allowNull: true,
+      },
+      // Only meaningful for a Transfer-tile row (isTransfer: true) - the
+      // designation they're moving into (e.g. TMO -> MO on an internal
+      // promotion). designationId keeps meaning their designation before
+      // the transfer, same as every other exit-tile row. Null otherwise.
+      newDesignationId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+          model: "designations",
+          key: "id",
+        },
       },
       dateOfJoin: {
         type: DataTypes.DATEONLY,

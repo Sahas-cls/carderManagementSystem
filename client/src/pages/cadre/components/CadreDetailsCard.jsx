@@ -468,6 +468,7 @@ export default function CadreDetailsCard({
             <GroupField
               label="MO"
               type="number"
+              disabled
               min="0"
               value={form.rejoinedMO}
               onChange={setField("rejoinedMO")}
@@ -475,6 +476,7 @@ export default function CadreDetailsCard({
             <GroupField
               label="TMO"
               type="number"
+              disabled
               min="0"
               value={form.rejoinedTMO}
               onChange={setField("rejoinedTMO")}

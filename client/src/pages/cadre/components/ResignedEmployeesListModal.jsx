@@ -277,14 +277,25 @@ export default function ResignedEmployeesListModal({
                   <th className="p-2 border border-slate-200">Type</th>
                   <th className="p-2 border border-slate-200">EPF No.</th>
                   <th className="p-2 border border-slate-200">Name</th>
-                  <th className="p-2 border border-slate-200">Designation</th>
+                  <th className="p-2 border border-slate-200">
+                    {isTransfer ? "Old Designation" : "Designation"}
+                  </th>
+                  {isTransfer && (
+                    <th className="p-2 border border-slate-200">
+                      New Designation
+                    </th>
+                  )}
                   <th className="p-2 border border-slate-200">Department</th>
                   <th className="p-2 border border-slate-200">Section</th>
-                  <th className="p-2 border border-slate-200">Date of Join</th>
+                  {!isTransfer && (
+                    <th className="p-2 border border-slate-200">Date of Join</th>
+                  )}
                   <th className="p-2 border border-slate-200">
-                    Date of Resign
+                    {isTransfer ? "Effective Date" : "Date of Resign"}
                   </th>
-                  <th className="p-2 border border-slate-200">Service</th>
+                  {!isTransfer && (
+                    <th className="p-2 border border-slate-200">Service</th>
+                  )}
                   <th className="p-2 border border-slate-200">Reason</th>
                   {isTransfer && (
                     <th className="p-2 border border-slate-200">Outcome</th>
@@ -307,21 +318,32 @@ export default function ResignedEmployeesListModal({
                     <td className="p-2 border border-slate-200">
                       {designationName(emp.designationId)}
                     </td>
+                    {isTransfer && (
+                      <td className="p-2 border border-slate-200">
+                        {emp.newDesignationId
+                          ? designationName(emp.newDesignationId)
+                          : "-"}
+                      </td>
+                    )}
                     <td className="p-2 border border-slate-200">
                       {departmentName(emp.departmentId)}
                     </td>
                     <td className="p-2 border border-slate-200">
                       {sectionName(emp.sectionId)}
                     </td>
-                    <td className="p-2 border border-slate-200">
-                      {emp.dateOfJoin || "-"}
-                    </td>
+                    {!isTransfer && (
+                      <td className="p-2 border border-slate-200">
+                        {emp.dateOfJoin || "-"}
+                      </td>
+                    )}
                     <td className="p-2 border border-slate-200">
                       {emp.dateOfResign || "-"}
                     </td>
-                    <td className="p-2 border border-slate-200">
-                      {computeServicePeriod(emp.dateOfJoin, emp.dateOfResign)}
-                    </td>
+                    {!isTransfer && (
+                      <td className="p-2 border border-slate-200">
+                        {computeServicePeriod(emp.dateOfJoin, emp.dateOfResign)}
+                      </td>
+                    )}
                     <td className="p-2 border border-slate-200">
                       {reasonName(emp.resignationReasonId)}
                     </td>

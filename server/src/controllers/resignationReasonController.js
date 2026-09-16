@@ -4,7 +4,7 @@ const asyncHandler = require("../utils/asyncHandler");
 const resignationReasonService = require("../services/resignationReasonService");
 
 const getResignationReasons = asyncHandler(async (req, res) => {
-  const reasons = await resignationReasonService.getAllResignationReasons();
+  const reasons = await resignationReasonService.getAllResignationReasons(req.filters);
   res.json({ success: true, data: reasons });
 });
 

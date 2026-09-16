@@ -1,7 +1,9 @@
 import api from "./api";
 
-export function getResignationReasons() {
-  return api.get("/resignation-reasons");
+/** `transferRelated` (true/false) narrows to just that flag - omit for every reason. */
+export function getResignationReasons(transferRelated) {
+  if (transferRelated === undefined) return api.get("/resignation-reasons");
+  return api.get("/resignation-reasons", { params: { transferRelated } });
 }
 
 export function createResignationReason(reason) {

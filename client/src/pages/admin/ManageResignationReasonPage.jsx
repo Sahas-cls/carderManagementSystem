@@ -12,7 +12,7 @@ import {
   deleteResignationReason,
 } from "../../services/resignationReasonServices";
 
-const EMPTY_FORM = { resignedReason: "" };
+const EMPTY_FORM = { resignedReason: "", transferRelated: false };
 
 const visualizeDateTime = (date) => {
   if (!date) return "";
@@ -87,7 +87,10 @@ const ManageResignationReasonPage = () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
 
-    const payload = { resignedReason: form.resignedReason.trim() };
+    const payload = {
+      resignedReason: form.resignedReason.trim(),
+      transferRelated: !!form.transferRelated,
+    };
 
     try {
       if (!editingId) {
@@ -125,7 +128,10 @@ const ManageResignationReasonPage = () => {
   };
 
   const handleEdit = (reason) => {
-    setForm({ resignedReason: reason.resignedReason || "" });
+    setForm({
+      resignedReason: reason.resignedReason || "",
+      transferRelated: !!reason.transferRelated,
+    });
     setEditingId(reason.id);
     setShowForm(true);
   };
@@ -235,6 +241,21 @@ const ManageResignationReasonPage = () => {
               </div>
             </div>
 
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={form.transferRelated}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    transferRelated: e.target.checked,
+                  }))
+                }
+              />
+              Transfer related (shown only in the Transfer tile's Reason
+              dropdown, not Resigned/Terminated)
+            </label>
+
             <div className="mt-6 flex gap-4 justify-end">
               <Button
                 type="button"
@@ -278,6 +299,7 @@ const ManageResignationReasonPage = () => {
                 <thead>
                   <tr className="text-left text-[11px] uppercase tracking-wide text-gray-500 border-b border-gray-200">
                     <th className="py-2 pr-3">Reason</th>
+                    <th className="py-2 pr-3">Transfer Related</th>
                     <th className="py-2 pr-3">Created At</th>
                     <th className="py-2 pr-3 text-center">Actions</th>
                   </tr>
@@ -290,6 +312,15 @@ const ManageResignationReasonPage = () => {
                     >
                       <td className="py-2.5 pr-3 font-medium text-gray-800">
                         {reason.resignedReason}
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        {reason.transferRelated ? (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-teal-soft text-teal-dark">
+                            Transfer
+                          </span>
+                        ) : (
+                          <span className="text-gray-400 text-xs">-</span>
+                        )}
                       </td>
                       <td className="py-2.5 pr-3 text-gray-500 text-xs">
                         {visualizeDateTime(reason.createdAt)}

@@ -3,9 +3,17 @@
 const { ResignationReason } = require("../../models");
 const ApiError = require("../utils/ApiError");
 
-/** Returns every resignation reason, ordered by name, for the Reason Master table and Employee's resignation dropdown. */
-async function getAllResignationReasons() {
+/**
+ * Returns resignation reasons, ordered by name, for the Reason Master table
+ * and Employee's resignation/transfer dropdowns. `transferRelated`
+ * (true/false) narrows to just that flag - omit it for every reason (the
+ * Reason Master table's own listing).
+ */
+async function getAllResignationReasons({ transferRelated } = {}) {
+  const where = {};
+  if (transferRelated !== undefined) where.transferRelated = transferRelated;
   return ResignationReason.findAll({
+    where,
     order: [["resignedReason", "ASC"]],
   });
 }
@@ -26,16 +34,16 @@ async function assertReasonAvailable(resignedReason, excludeId) {
   }
 }
 
-async function createResignationReason({ resignedReason }) {
+async function createResignationReason({ resignedReason, transferRelated }) {
   await assertReasonAvailable(resignedReason);
-  return ResignationReason.create({ resignedReason });
+  return ResignationReason.create({ resignedReason, transferRelated: !!transferRelated });
 }
 
-async function updateResignationReason(id, { resignedReason }) {
+async function updateResignationReason(id, { resignedReason, transferRelated }) {
   const reason = await getReasonOr404(id);
   await assertReasonAvailable(resignedReason, reason.id);
 
-  await reason.update({ resignedReason });
+  await reason.update({ resignedReason, transferRelated: !!transferRelated });
   return reason;
 }
 

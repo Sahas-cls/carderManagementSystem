@@ -37,9 +37,11 @@ async function syncResignedEmployees(employees, batchId, transaction, isTransfer
     const fields = {
       employeeName: emp.employeeName,
       designationId: emp.designationId,
+      // Only meaningful for a Transfer-tile row - the designation they're
+      // moving into. Ignored/null for Resigned/Terminated rows.
+      newDesignationId: isTransfer ? emp.newDesignationId ?? null : null,
       departmentId: emp.departmentId,
       sectionId: emp.sectionId,
-      dateOfJoin: emp.dateOfJoin,
       dateOfResign: emp.dateOfResign,
       resignationReasonId: emp.resignationReasonId ?? null,
       batchId,
@@ -50,10 +52,15 @@ async function syncResignedEmployees(employees, batchId, transaction, isTransfer
       // leaving. Ignored/null for Resigned/Terminated rows.
       promotedToMo: isTransfer ? !!emp.promotedToMo : null,
     };
+    // Transfer doesn't collect Date of Joining (see ResignedEmployeesModal) -
+    // leave a real existing employee's join date alone rather than having it
+    // silently overwritten; only a genuinely new employee needs one at all,
+    // defaulted to their transfer's effective date.
+    if (!isTransfer) fields.dateOfJoin = emp.dateOfJoin;
 
     const [record, created] = await Employee.findOrCreate({
       where: { epf: emp.epf },
-      defaults: { epf: emp.epf, ...fields },
+      defaults: { epf: emp.epf, dateOfJoin: isTransfer ? emp.dateOfResign : emp.dateOfJoin, ...fields },
       transaction,
     });
     if (!created) {
@@ -101,13 +108,13 @@ async function deleteResignedEmployee(epf, batchId, transaction) {
 /**
  * Reactivates one resigned/transferred employee - the "Rejoin" counterpart
  * to deleteResignedEmployee above. Instead of hard-deleting the Employee
- * row, clears its exit fields (dateOfResign, resignationReasonId) and
- * unlinks it from the batch (batchId/isMo/isTransfer), so the employee is
- * active again and reappears as ordinary employee master data. Returns the
- * row's isMo and isTransfer as they were before being cleared, so the
- * caller can decrement the right tile (Resigned or Transfer) and increment
- * Rejoined by the right type; throws 404 if that epf isn't currently linked
- * to this batch.
+ * row, clears its exit fields (dateOfResign, resignationReasonId,
+ * newDesignationId) and unlinks it from the batch (batchId/isMo/
+ * isTransfer), so the employee is active again and reappears as ordinary
+ * employee master data. Returns the row's isMo and isTransfer as they were
+ * before being cleared, so the caller can decrement the right tile
+ * (Resigned or Transfer) and increment Rejoined by the right type; throws
+ * 404 if that epf isn't currently linked to this batch.
  */
 async function rejoinEmployee(epf, batchId, transaction) {
   const employee = await Employee.findOne({ where: { epf, batchId }, transaction });
@@ -119,6 +126,7 @@ async function rejoinEmployee(epf, batchId, transaction) {
     {
       dateOfResign: null,
       resignationReasonId: null,
+      newDesignationId: null,
       batchId: null,
       isMo: null,
       isTransfer: null,

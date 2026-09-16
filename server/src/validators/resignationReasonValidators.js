@@ -13,7 +13,7 @@ function validateIdParam(req, res, next) {
 }
 
 /**
- * Validates the create/update body. The client sends { reason: { resignedReason } } -
+ * Validates the create/update body. The client sends { reason: { resignedReason, transferRelated } } -
  * accept that shape (or a flat body) and normalize to the flat shape the service expects.
  */
 function validateResignationReasonBody(req, res, next) {
@@ -26,11 +26,24 @@ function validateResignationReasonBody(req, res, next) {
       throw new ApiError(400, "Reason is required.");
     }
 
-    req.body = { resignedReason };
+    req.body = { resignedReason, transferRelated: !!source.transferRelated };
     next();
   } catch (err) {
     next(err);
   }
 }
 
-module.exports = { validateIdParam, validateResignationReasonBody };
+/** Validates GET /resignation-reasons' optional ?transferRelated=true|false filter. */
+function validateResignationReasonQuery(req, res, next) {
+  const { transferRelated } = req.query;
+  req.filters = {};
+  if (transferRelated !== undefined) {
+    if (transferRelated !== "true" && transferRelated !== "false") {
+      return next(new ApiError(400, "transferRelated must be true or false."));
+    }
+    req.filters.transferRelated = transferRelated === "true";
+  }
+  next();
+}
+
+module.exports = { validateIdParam, validateResignationReasonBody, validateResignationReasonQuery };

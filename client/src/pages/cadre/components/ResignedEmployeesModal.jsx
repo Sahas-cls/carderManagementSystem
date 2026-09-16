@@ -9,14 +9,18 @@ const EMPTY_ROW = {
   epf: "",
   employeeName: "",
   designationId: "",
+  // Only shown/meaningful for a Transfer-tile row - the designation they're
+  // moving into (e.g. TMO -> MO on an internal promotion).
+  newDesignationId: "",
   departmentId: "",
   sectionId: "",
   dateOfJoin: "",
   dateOfResign: "",
   resignationReasonId: "",
   // Only shown/meaningful for a Transfer-tile TMO row - see the "Outcome"
-  // dropdown below. Defaults to "leaves this carder".
-  promotedToMo: false,
+  // dropdown below. Defaults to "stays, promoted to MO" (an MO row ignores
+  // this - deriveTransferReasonName only reads it for a TMO row).
+  promotedToMo: true,
 };
 
 const REQUIRED_FIELDS = [
@@ -29,6 +33,11 @@ const REQUIRED_FIELDS = [
   "dateOfResign",
   "resignationReasonId",
 ];
+
+/** "Internal Transfer" for a promoted TMO, "External Transfer" for everyone else on the Transfer tile. */
+function deriveTransferReasonName(row, isMo) {
+  return !isMo && row.promotedToMo ? "Internal Transfer" : "External Transfer";
+}
 
 /** "2y 3m" from two yyyy-mm-dd strings, or "" while either is missing/invalid. */
 function computeServicePeriod(dateOfJoin, dateOfResign) {
@@ -52,8 +61,17 @@ function computeServicePeriod(dateOfJoin, dateOfResign) {
   return `${years}y ${months}m`;
 }
 
-/** Whether every required field on one row is filled in and its dates make sense. */
-function isRowComplete(row) {
+/**
+ * Whether every required field on one row is filled in and its dates make
+ * sense. Transfer doesn't collect Date of Joining (see the popup below) -
+ * newDesignationId is required instead, and there's no join/resign order to
+ * check since only the effective date is collected.
+ */
+function isRowComplete(row, isTransfer) {
+  if (isTransfer) {
+    const fields = REQUIRED_FIELDS.filter((f) => f !== "dateOfJoin").concat("newDesignationId");
+    return fields.every((field) => !!row[field]);
+  }
   if (REQUIRED_FIELDS.some((field) => !row[field])) return false;
   return row.dateOfResign >= row.dateOfJoin;
 }
@@ -135,7 +153,10 @@ export default function ResignedEmployeesModal({
       getDesignations(),
       getDepartments(factoryId),
       getSections(),
-      getResignationReasons(),
+      // Transfer tile only offers reasons flagged transferRelated (Internal/
+      // External Transfer, or any admin-added ones); Resigned/Terminated
+      // only offers the rest, so the two dropdowns never overlap.
+      getResignationReasons(isTransfer),
     ])
       .then(([d, dept, s, r]) => {
         if (cancelled) return;
@@ -154,17 +175,55 @@ export default function ResignedEmployeesModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, factoryId]);
+  }, [isOpen, factoryId, isTransfer]);
+
+  // "Internal Transfer" / "External Transfer" resignationreasons row id, by
+  // name - seeded automatically (see the server migration), editable
+  // afterwards via Manage Resignation Reasons like any other reason.
+  const reasonIdByName = useMemo(() => {
+    const map = new Map(reasons.map((r) => [r.resignedReason, r.id]));
+    return (name) => map.get(name) ?? "";
+  }, [reasons]);
 
   const updateRow = (index, field, value) => {
     setRows((prev) =>
-      prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)),
+      prev.map((row, i) => {
+        if (i !== index) return row;
+        const next = { ...row, [field]: value };
+        // Changing the Outcome re-derives the suggested reason - still
+        // editable afterwards via the Reason dropdown below.
+        if (isTransfer && field === "promotedToMo") {
+          const derivedId = reasonIdByName(deriveTransferReasonName(next, i < rmo));
+          if (derivedId) next.resignationReasonId = derivedId;
+        }
+        return next;
+      }),
     );
     setError("");
   };
 
-  const completedCount = rows.filter(isRowComplete).length;
-  const firstIncompleteIndex = rows.findIndex((row) => !isRowComplete(row));
+  // Pre-fills the Reason for Transfer with its derived default the first
+  // time a row appears with no reason chosen yet (new row, or a TMO row
+  // whose Outcome hasn't been touched) - never overwrites a reason already
+  // on file (e.g. reopening the popup on a saved entry, or a manual
+  // override), so this only ever fills the blank.
+  useEffect(() => {
+    if (!isTransfer || !isOpen || !reasons.length) return;
+    setRows((prev) => {
+      let changed = false;
+      const next = prev.map((row, i) => {
+        if (row.resignationReasonId) return row;
+        const derivedId = reasonIdByName(deriveTransferReasonName(row, i < rmo));
+        if (!derivedId) return row;
+        changed = true;
+        return { ...row, resignationReasonId: derivedId };
+      });
+      return changed ? next : prev;
+    });
+  }, [isTransfer, isOpen, reasons, rmo, reasonIdByName]);
+
+  const completedCount = rows.filter((row) => isRowComplete(row, isTransfer)).length;
+  const firstIncompleteIndex = rows.findIndex((row) => !isRowComplete(row, isTransfer));
   // Row indexes whose EPF No. collides with another row's - shown as an error
   // badge on the tab (rather than blocking as "incomplete", since both rows
   // otherwise have valid-looking data).
@@ -279,7 +338,7 @@ export default function ResignedEmployeesModal({
             attention before Save Details is enabled. */}
         <div className="flex flex-wrap gap-2 mb-4">
           {rows.map((row, i) => {
-            const complete = isRowComplete(row) && !epfDuplicates.has(i);
+            const complete = isRowComplete(row, isTransfer) && !epfDuplicates.has(i);
             const active = i === activeIndex;
             return (
               <button
@@ -374,7 +433,7 @@ export default function ResignedEmployeesModal({
                 />
               </Field>
 
-              <Field label="Designation">
+              <Field label={isTransfer ? "Old Designation" : "Designation"}>
                 <select
                   className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   value={rows[activeIndex].designationId}
@@ -390,6 +449,25 @@ export default function ResignedEmployeesModal({
                   ))}
                 </select>
               </Field>
+
+              {isTransfer && (
+                <Field label="New Designation">
+                  <select
+                    className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={rows[activeIndex].newDesignationId}
+                    onChange={(e) =>
+                      updateRow(activeIndex, "newDesignationId", e.target.value)
+                    }
+                  >
+                    <option value="">Select…</option>
+                    {designations.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.designation}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
 
               <Field label="Department">
                 <select
@@ -425,18 +503,20 @@ export default function ResignedEmployeesModal({
                 </select>
               </Field>
 
-              <Field label="Date of Joining">
-                <input
-                  type="date"
-                  className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={rows[activeIndex].dateOfJoin}
-                  onChange={(e) =>
-                    updateRow(activeIndex, "dateOfJoin", e.target.value)
-                  }
-                />
-              </Field>
+              {!isTransfer && (
+                <Field label="Date of Joining">
+                  <input
+                    type="date"
+                    className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={rows[activeIndex].dateOfJoin}
+                    onChange={(e) =>
+                      updateRow(activeIndex, "dateOfJoin", e.target.value)
+                    }
+                  />
+                </Field>
+              )}
 
-              <Field label="Date of Resign">
+              <Field label={isTransfer ? "Effective Date" : "Date of Resign"}>
                 <input
                   type="date"
                   className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -447,20 +527,22 @@ export default function ResignedEmployeesModal({
                 />
               </Field>
 
-              <Field label="Service Period">
-                <input
-                  type="text"
-                  readOnly
-                  className="w-full px-2.5 py-1.5 text-sm border border-gray-300 bg-gray-50 rounded-md"
-                  value={computeServicePeriod(
-                    rows[activeIndex].dateOfJoin,
-                    rows[activeIndex].dateOfResign,
-                  )}
-                />
-              </Field>
+              {!isTransfer && (
+                <Field label="Service Period">
+                  <input
+                    type="text"
+                    readOnly
+                    className="w-full px-2.5 py-1.5 text-sm border border-gray-300 bg-gray-50 rounded-md"
+                    value={computeServicePeriod(
+                      rows[activeIndex].dateOfJoin,
+                      rows[activeIndex].dateOfResign,
+                    )}
+                  />
+                </Field>
+              )}
 
               <Field
-                label="Reason for Resign"
+                label={isTransfer ? "Reason for Transfer" : "Reason for Resign"}
                 className="col-span-full sm:col-span-2"
               >
                 <select

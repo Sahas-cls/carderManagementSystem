@@ -10,12 +10,13 @@ const {
 const {
   validateIdParam,
   validateResignationReasonBody,
+  validateResignationReasonQuery,
 } = require("../validators/resignationReasonValidators");
 const { requireAuth, requireRole } = require("../middleware/auth");
 
 const router = Router();
 
-router.get("/", getResignationReasons);
+router.get("/", validateResignationReasonQuery, getResignationReasons);
 
 // Managing resignation reasons (Reason Master) is admin-only.
 router.use(requireAuth, requireRole("Administrator"));

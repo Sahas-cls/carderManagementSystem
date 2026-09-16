@@ -250,6 +250,9 @@ function flattenExitEmployee(e) {
     epf: e.epf,
     employeeName: e.employeeName,
     designationId: e.designationId,
+    // Only meaningful on a Transfer row (see Employee.newDesignationId) -
+    // carried along on resignedEmployees rows too, harmless (always null).
+    newDesignationId: e.newDesignationId,
     departmentId: e.departmentId,
     sectionId: e.sectionId,
     dateOfJoin: e.dateOfJoin,
@@ -784,8 +787,11 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
  *    entered that day. Both are *averaged* across every daily entry within
  *    the month, matching the sheet's "AVERAGE".
  *  - recruitment/resigned mirror "FACTORY WISE RECRUITMENT & RESIGN TREND":
- *    each daily entry's New Recruit / Resigned total is a count of people
- *    that day, so these are *summed* (not averaged) across the month.
+ *    each daily entry's New Recruit total (Cadre side) plus that day's
+ *    Training Center Recruit. count, and Resigned/Terminated total (Cadre
+ *    side only - Transfer is a different tile/table and deliberately left
+ *    out, since it isn't attrition), are counts of people that day, so
+ *    these are *summed* (not averaged) across the month.
  *  - absent mirrors the "Absenteeism" sheet's per-month Absenteeism count -
  *    a daily attendance snapshot like Allocated, so it's *averaged* (not
  *    summed) across the month the same way; the sheet's Absenteeism Rate
@@ -803,13 +809,14 @@ async function getCadreTrend({ year, factoryId } = {}) {
   const where = { date: { [Op.between]: [yearStart, yearEnd] } };
   if (factoryId) where.factoryId = factoryId;
 
-  const [factories, plannedRows, allocatedRows, newRecRows, resignedRows, absentRows] = await Promise.all([
+  const [factories, plannedRows, allocatedRows, newRecRows, tcRows, resignedRows, absentRows] = await Promise.all([
     Factory.findAll({ attributes: ["id", "factoryName"] }),
     // Budgets are soft-deleted (paranoid) - see listDailyRecords for why
     // this include bypasses that default.
     PlannedCarder.findAll({ where, include: [{ model: Budget, as: "budget", paranoid: false }] }),
     AllocatedActualCarder.findAll({ where }),
     NewRecruitCarder.findAll({ where }),
+    TrainingCenter.findAll({ where, attributes: ["factoryId", "date", "recruit"] }),
     ResignedCarder.findAll({ where }),
     AbsenteeismCarder.findAll({ where }),
   ]);
@@ -850,6 +857,9 @@ async function getCadreTrend({ year, factoryId } = {}) {
   });
   newRecRows.forEach((row) => {
     bucket(row.factoryId, monthKey(row.date)).recruitment += row.total;
+  });
+  tcRows.forEach((row) => {
+    bucket(row.factoryId, monthKey(row.date)).recruitment += row.recruit ?? 0;
   });
   resignedRows.forEach((row) => {
     bucket(row.factoryId, monthKey(row.date)).resigned += row.total;

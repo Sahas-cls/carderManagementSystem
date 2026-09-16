@@ -27,9 +27,14 @@ const EXIT_EMPLOYEE_FIELDS = [
  * the user cannot submit the Daily Data Entry without one fully-filled row
  * per MO/TMO, matching the popup's own gating. The first `mo` rows are
  * tagged isMo:true (MO), the rest isMo:false (TMO) - mirrors how
- * ResignedEmployeesModal orders them.
+ * ResignedEmployeesModal orders them. `isTransfer` additionally requires
+ * newDesignationId (the designation they're moving into) instead of
+ * dateOfJoin - Transfer only collects an effective date (dateOfResign),
+ * not a join date, so there's nothing to validate it against either;
+ * dateOfJoin is meaningless for a Resigned/Terminated row, so not required
+ * there.
  */
-function validateExitEmployees(rows, mo, tmo, label) {
+function validateExitEmployees(rows, mo, tmo, label, isTransfer = false) {
   const total = mo + tmo;
   const list = Array.isArray(rows) ? rows : [];
 
@@ -39,9 +44,13 @@ function validateExitEmployees(rows, mo, tmo, label) {
     throw new ApiError(400, `Please provide details for all ${total} ${label}(s).`);
   }
 
+  const fields = isTransfer
+    ? [...EXIT_EMPLOYEE_FIELDS.filter((f) => f !== "dateOfJoin"), "newDesignationId"]
+    : EXIT_EMPLOYEE_FIELDS;
+
   return list.map((row, i) => {
     const parsed = {};
-    EXIT_EMPLOYEE_FIELDS.forEach((field) => {
+    fields.forEach((field) => {
       const value = row?.[field];
       if (value === undefined || value === null || value === "") {
         throw new ApiError(400, `${label} #${i + 1}: ${field} is required.`);
@@ -49,7 +58,10 @@ function validateExitEmployees(rows, mo, tmo, label) {
       parsed[field] = value;
     });
 
-    ["designationId", "departmentId", "sectionId", "resignationReasonId"].forEach((field) => {
+    const idFields = isTransfer
+      ? ["designationId", "newDesignationId", "departmentId", "sectionId", "resignationReasonId"]
+      : ["designationId", "departmentId", "sectionId", "resignationReasonId"];
+    idFields.forEach((field) => {
       const num = Number(parsed[field]);
       if (!Number.isInteger(num) || num <= 0) {
         throw new ApiError(400, `${label} #${i + 1}: ${field} must be a valid id.`);
@@ -57,10 +69,10 @@ function validateExitEmployees(rows, mo, tmo, label) {
       parsed[field] = num;
     });
 
-    if (!DATE_RE.test(parsed.dateOfJoin) || !DATE_RE.test(parsed.dateOfResign)) {
+    if (!DATE_RE.test(parsed.dateOfResign) || (!isTransfer && !DATE_RE.test(parsed.dateOfJoin))) {
       throw new ApiError(400, `${label} #${i + 1}: dates must be in YYYY-MM-DD format.`);
     }
-    if (parsed.dateOfResign < parsed.dateOfJoin) {
+    if (!isTransfer && parsed.dateOfResign < parsed.dateOfJoin) {
       throw new ApiError(400, `${label} #${i + 1}: Date of Resign cannot be before Date of Joining.`);
     }
 
@@ -142,7 +154,8 @@ function validateDailyRecordBody(req, res, next) {
       body.transferEmployees,
       parsed.transferMO || 0,
       parsed.transferTMO || 0,
-      "transfer employee"
+      "transfer employee",
+      true
     );
 
     req.body = parsed;
