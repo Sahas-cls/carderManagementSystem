@@ -5,11 +5,11 @@ const cors = require("cors");
 const morgan = require("morgan");
 const routes = require("./src/routes");
 const { notFound, errorHandler } = require("./src/middleware/errorHandler");
-const { User } = require("../server/models");
+const { User } = require("./models");
 const {
   hashPassword,
   comparePassword,
-} = require("../server/src/utils/password");
+} = require("./src/utils/password");
 const { where } = require("sequelize");
 
 const app = express();
