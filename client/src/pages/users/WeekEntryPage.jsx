@@ -14,6 +14,7 @@ import {
 import "react-day-picker/dist/style.css";
 import Notice from "../../components/ui/Notice";
 import useNotice from "../../hooks/useNotice";
+import useAuth from "../../hooks/useAuth";
 import { createWeek, getWeeks, updateWeek } from "../../services/weekServices";
 
 const WeeklyDateSelector = ({
@@ -38,6 +39,9 @@ const WeeklyDateSelector = ({
   // already exist under a different slot).
   const [weekIds, setWeekIds] = useState({});
   const [notice, showNotice] = useNotice();
+  const { user } = useAuth();
+  // SuperUser can view configured week dates but never add/edit them.
+  const canEdit = user?.role?.userRole !== "SuperUser";
 
   // Helper: Check if date is valid
   const isValidDate = useCallback((date) => {
@@ -276,7 +280,7 @@ const WeeklyDateSelector = ({
   // Handle date selection from calendar
   const handleDateSelect = useCallback(
     (date) => {
-      if (!date || !activeWeek) return;
+      if (!canEdit || !date || !activeWeek) return;
 
       if (!isSameMonth(date, currentMonth)) {
         return;
@@ -316,6 +320,7 @@ const WeeklyDateSelector = ({
       setTimeout(() => validateDates(), 0);
     },
     [
+      canEdit,
       activeWeek,
       selectedDates,
       currentMonth,
@@ -328,6 +333,7 @@ const WeeklyDateSelector = ({
   // Handle direct date input from text field
   const handleDateInput = useCallback(
     (weekKey, event) => {
+      if (!canEdit) return;
       const value = event.target.value;
 
       // Update input value immediately for better UX
@@ -398,6 +404,7 @@ const WeeklyDateSelector = ({
       }
     },
     [
+      canEdit,
       currentMonth,
       selectedDates,
       validationErrors,
@@ -407,12 +414,16 @@ const WeeklyDateSelector = ({
   );
 
   // Handle week card click
-  const handleWeekClick = useCallback((weekKey) => {
-    setActiveWeek((prev) => (prev === weekKey ? null : weekKey));
-  }, []);
+  const handleWeekClick = useCallback(
+    (weekKey) => {
+      if (!canEdit) return;
+      setActiveWeek((prev) => (prev === weekKey ? null : weekKey));
+    },
+    [canEdit],
+  );
 
   const handleSave = useCallback(async () => {
-    if (!validateDates()) return;
+    if (!canEdit || !validateDates()) return;
 
     const formattedDates = {};
     Object.keys(selectedDates).forEach((weekKey) => {
@@ -477,6 +488,7 @@ const WeeklyDateSelector = ({
       setSaving(false);
     }
   }, [
+    canEdit,
     selectedDates,
     weekIds,
     validateDates,
@@ -687,6 +699,7 @@ const WeeklyDateSelector = ({
                         value={inputValue}
                         onChange={(e) => handleDateInput(weekKey, e)}
                         onClick={(e) => e.stopPropagation()}
+                        disabled={!canEdit}
                         min={format(startOfMonth(currentMonth), "yyyy-MM-dd")}
                         max={format(
                           addDays(startOfMonth(currentMonth), 42),
@@ -713,47 +726,49 @@ const WeeklyDateSelector = ({
           </div>
 
           <div className="pt-3 sm:pt-4 border-t border-gray-200 flex flex-col gap-2 sm:gap-2.5">
-            <div className="flex flex-col sm:flex-row gap-2">
-              <button
-                className={`flex-1 py-2.5 sm:py-3 px-4 sm:px-6 rounded-lg text-sm sm:text-base font-medium transition-all duration-200
+            {canEdit && (
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  className={`flex-1 py-2.5 sm:py-3 px-4 sm:px-6 rounded-lg text-sm sm:text-base font-medium transition-all duration-200
                   ${
                     isFormValid && !saving && !loadingMonth
                       ? "bg-blue-600 text-white hover:bg-blue-700 hover:-translate-y-0.5 hover:shadow-lg"
                       : "bg-gray-400 text-white cursor-not-allowed"
                   }
                 `}
-                onClick={handleSave}
-                disabled={!isFormValid || saving || loadingMonth}
-              >
-                {saving ? "Saving…" : "💾 Save Configuration"}
-              </button>
-              <button
-                className="py-2.5 sm:py-3 px-4 sm:px-6 rounded-lg text-sm sm:text-base font-medium border-2 border-gray-300 text-gray-700 hover:bg-gray-50 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={saving || loadingMonth}
-                onClick={() => {
-                  const weekStarts = calculateFirstDayOfEachWeek(currentMonth);
-                  const newDates = {};
-                  const newInputs = {};
-                  weekStarts.forEach((weekStart, index) => {
-                    const weekKey = `week${index + 1}`;
-                    newDates[weekKey] = weekStart;
-                    newInputs[weekKey] = format(weekStart, "yyyy-MM-dd");
-                  });
-                  setSelectedDates(newDates);
-                  setInputValues(newInputs);
-                  setActiveWeek(null);
-                  setValidationErrors({});
-                  // Deliberately keep weekIds as-is: each slot may still be
-                  // tied to a saved row, and Reset only changes what date is
-                  // *displayed* for it. Clearing weekIds here used to make
-                  // Save treat every slot as brand new, so instead of
-                  // editing the existing row in place it inserted a new one
-                  // and left the old row behind under its original date.
-                }}
-              >
-                ↩️ Reset to Week Start Dates
-              </button>
-            </div>
+                  onClick={handleSave}
+                  disabled={!isFormValid || saving || loadingMonth}
+                >
+                  {saving ? "Saving…" : "💾 Save Configuration"}
+                </button>
+                <button
+                  className="py-2.5 sm:py-3 px-4 sm:px-6 rounded-lg text-sm sm:text-base font-medium border-2 border-gray-300 text-gray-700 hover:bg-gray-50 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={saving || loadingMonth}
+                  onClick={() => {
+                    const weekStarts = calculateFirstDayOfEachWeek(currentMonth);
+                    const newDates = {};
+                    const newInputs = {};
+                    weekStarts.forEach((weekStart, index) => {
+                      const weekKey = `week${index + 1}`;
+                      newDates[weekKey] = weekStart;
+                      newInputs[weekKey] = format(weekStart, "yyyy-MM-dd");
+                    });
+                    setSelectedDates(newDates);
+                    setInputValues(newInputs);
+                    setActiveWeek(null);
+                    setValidationErrors({});
+                    // Deliberately keep weekIds as-is: each slot may still be
+                    // tied to a saved row, and Reset only changes what date is
+                    // *displayed* for it. Clearing weekIds here used to make
+                    // Save treat every slot as brand new, so instead of
+                    // editing the existing row in place it inserted a new one
+                    // and left the old row behind under its original date.
+                  }}
+                >
+                  ↩️ Reset to Week Start Dates
+                </button>
+              </div>
+            )}
             {loadingMonth && (
               <div className="text-xs sm:text-sm text-gray-500 text-center py-2 px-3 bg-gray-50 rounded">
                 Loading saved weeks for this month…

@@ -4,8 +4,31 @@ import { CountBadge } from "../../../components/ui/Badge";
 
 const TH = "border border-slate-400 p-1.5";
 const TD = "border border-slate-400 p-1.5";
+// Grand-total footer cells for columns that are a point-in-time snapshot
+// (planned/allocated/shortage/net/current headcount) rather than a daily
+// flow - summing them across the month wouldn't be a meaningful total, so
+// they're muted with a dash instead of a number.
+const TD_NA =
+  "border border-slate-400 p-1.5 bg-slate-100 text-slate-300 font-normal";
 
-export default function DailyRecordsTable({ records, onEdit, onDelete, month, onMonthChange }) {
+export default function DailyRecordsTable({
+  records,
+  highlightBatchId,
+  onEdit,
+  onDelete,
+  month,
+  onMonthChange,
+}) {
+  // No handlers (SuperUser - view-only) means no Action column at all.
+  const canEdit = !!(onEdit || onDelete);
+  // Sums a numeric field across every currently-displayed (i.e. this month's) record for the grand-totals footer row.
+  const sum = (key) =>
+    records.reduce((total, r) => total + (Number(r[key]) || 0), 0);
+  // Newest first (2026-09-03, 2026-09-02, ...). Dates are ISO YYYY-MM-DD
+  // strings so a plain string compare is chronological; blank dates sink.
+  const sortedRecords = [...records].sort((a, b) =>
+    (b.date || "").localeCompare(a.date || ""),
+  );
   return (
     <Card
       title="Daily Data Records"
@@ -29,9 +52,9 @@ export default function DailyRecordsTable({ records, onEdit, onDelete, month, on
         </div>
       }
     >
-      <div className="overflow-auto">
-        <table className="border-collapse w-full min-w-[1900px] text-[10.5px]">
-          <thead>
+      <div className="overflow-auto max-h-[60vh] relative">
+        <table className="border-collapse max-h-[200px] md:max-h-[400px] lg:max-h-[700px] text-[10.5px] relative">
+          <thead className="sticky top-0">
             <tr className="bg-navy text-white text-[11px] leading-tight h-[55px]">
               <th className={TH} rowSpan={2}>
                 Date
@@ -41,7 +64,7 @@ export default function DailyRecordsTable({ records, onEdit, onDelete, month, on
               </th>
               <th className={TH} colSpan={3}>
                 Planned MO/TMO
-              </th>
+              </th>  
               <th className={TH} colSpan={3}>
                 Allocated_Actual MO/TMO
               </th>
@@ -78,9 +101,11 @@ export default function DailyRecordsTable({ records, onEdit, onDelete, month, on
               <th className={TH} colSpan={8}>
                 TMO_Training Center.
               </th>
-              <th className={TH} rowSpan={2}>
-                Action
-              </th>
+              {canEdit && (
+                <th className={TH} rowSpan={2}>
+                  Action
+                </th>
+              )}
             </tr>
             <tr className="bg-[#376c9e] text-white text-[10px] h-9">
               <th className={TH}>MO</th>
@@ -134,19 +159,22 @@ export default function DailyRecordsTable({ records, onEdit, onDelete, month, on
             {records.length === 0 ? (
               <tr>
                 <td
-                  colSpan={47}
+                  colSpan={canEdit ? 47 : 46}
                   className="p-8 text-center text-slate-400 border border-slate-400"
                 >
                   No records for the selected month. Try a different month
-                  above, or select a factory and enter the cadre details
-                  above.
+                  above, or select a factory and enter the cadre details above.
                 </td>
               </tr>
             ) : (
-              records.map((r) => (
+              sortedRecords.map((r) => (
                 <tr
                   key={r.batchId}
-                  className="bg-white hover:bg-sky-50 text-center"
+                  className={`text-center ${
+                    r.batchId === highlightBatchId
+                      ? "bg-amber-100 hover:bg-amber-200 text-navy-dark font-semibold"
+                      : "bg-white hover:bg-sky-50"
+                  }`}
                 >
                   <td className={TD}>{r.date || "-"}</td>
                   <td className={TD}>{r.week || "-"}</td>
@@ -194,24 +222,171 @@ export default function DailyRecordsTable({ records, onEdit, onDelete, month, on
                   <td className={TD}>{r.tactual}</td>
                   <td className={TD}>{r.tcab}</td>
                   <td className={`${TD} font-bold`}>{r.tcpresent}</td>
-                  <td className={TD}>
-                    <div className="flex gap-1.5 justify-center">
-                      <Button variant="edit" small onClick={() => onEdit(r)}>
-                        Edit
-                      </Button>
-                      <Button
-                        variant="delete"
-                        small
-                        onClick={() => onDelete(r)}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </td>
+                  {canEdit && (
+                    <td className={TD}>
+                      <div className="flex gap-1.5 justify-center">
+                        <Button variant="edit" small onClick={() => onEdit(r)}>
+                          Edit
+                        </Button>
+                        <Button
+                          variant="delete"
+                          small
+                          onClick={() => onDelete(r)}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))
             )}
           </tbody>
+          {records.length > 0 && (
+            <tfoot>
+              <tr className="bg-teal-soft text-navy-dark font-bold text-center border-t-2 border-navy">
+                <td className={TD} colSpan={2}>
+                  Monthly Total <br />{" "}
+                  <span className="text-transparent">|</span>
+                </td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a planned/allocated snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a planned/allocated snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a planned/allocated snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a planned/allocated snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a planned/allocated snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a planned/allocated snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a planned/allocated snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a planned/allocated snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a planned/allocated snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td className={TD}>{sum("nmo")}</td>
+                <td className={TD}>{sum("ntmo")}</td>
+                <td className={TD}>{sum("nt")}</td>
+                <td className={TD}>{sum("rjmo")}</td>
+                <td className={TD}>{sum("rjtmo")}</td>
+                <td className={TD}>{sum("rjt")}</td>
+                <td className={TD}>{sum("relmo")}</td>
+                <td className={TD}>{sum("reltmo")}</td>
+                <td className={TD}>{sum("relt")}</td>
+                <td className={TD}>{sum("rmo")}</td>
+                <td className={TD}>{sum("rtmo")}</td>
+                <td className={TD}>{sum("rt")}</td>
+                <td className={TD}>{sum("tfmo")}</td>
+                <td className={TD}>{sum("tftmo")}</td>
+                <td className={TD}>{sum("tft")}</td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a net-change snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a net-change snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a net-change snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a current-headcount snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a current-headcount snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a current-headcount snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td className={TD}>{sum("abmo")}</td>
+                <td className={TD}>{sum("abtmo")}</td>
+                <td className={TD}>{sum("abt")}</td>
+                <td className={TD}>{sum("prmo")}</td>
+                <td className={TD}>{sum("prtmo")}</td>
+                <td className={TD}>{sum("prt")}</td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a planned/allocated snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a planned/allocated snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td className={TD}>{sum("tcr")}</td>
+                <td className={TD}>{sum("tcs")}</td>
+                <td className={TD}>{sum("tct")}</td>
+                <td
+                  className={TD_NA}
+                  title="Not totaled - a planned/allocated snapshot, not a daily flow."
+                >
+                  —
+                </td>
+                <td className={TD}>{sum("tcab")}</td>
+                <td className={TD}>{sum("tcpresent")}</td>
+                {canEdit && <td className={TD} />}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </Card>

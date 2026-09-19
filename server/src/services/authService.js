@@ -60,4 +60,25 @@ async function login({ email, password }) {
   return { user, token };
 }
 
-module.exports = { register, login };
+/**
+ * Self-service password change. Used both for a voluntary change and to
+ * clear a mustChangePassword flag set by userService.resetPassword - either
+ * way the caller must know the current (possibly temporary) password.
+ */
+async function changePassword(userId, { currentPassword, newPassword }) {
+  const user = await User.findByPk(userId);
+  if (!user) {
+    throw new ApiError(401, "Invalid or expired session. Please log in again.");
+  }
+
+  const valid = await comparePassword(currentPassword, user.password);
+  if (!valid) {
+    throw new ApiError(400, "Current password is incorrect.");
+  }
+
+  user.password = await hashPassword(newPassword);
+  user.mustChangePassword = false;
+  await user.save();
+}
+
+module.exports = { register, login, changePassword };

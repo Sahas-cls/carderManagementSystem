@@ -30,6 +30,8 @@ api.interceptors.response.use(
     const message = error.response?.data?.message || error.message || "Request failed.";
     if (error.response?.status === 401) {
       window.dispatchEvent(new CustomEvent("auth:unauthorized"));
+    } else if (error.response?.data?.code === "MUST_CHANGE_PASSWORD") {
+      window.dispatchEvent(new CustomEvent("auth:mustChangePassword"));
     }
     return Promise.reject(new Error(message));
   }

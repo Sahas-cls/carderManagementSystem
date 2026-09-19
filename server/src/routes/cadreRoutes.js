@@ -17,10 +17,12 @@ const {
   validateDailyRecordBody,
   validateBatchIdParam,
   validateResignedEmployeeParams,
+  validateRejoinBody,
   validateDailyRecordQuery,
   validateCadreTrendQuery,
   validatePreviousRecordQuery,
 } = require("../validators/dailyCadreValidators");
+const { requireAuth, forbidRole } = require("../middleware/auth");
 
 const router = Router();
 
@@ -31,12 +33,20 @@ router.get("/weekly", validateWeeklyQuery, getWeeklyView);
 // any future "/daily/:something" GET route.
 router.get("/daily/previous", validatePreviousRecordQuery, getPreviousDailyRecord);
 router.get("/daily", validateDailyRecordQuery, getDailyRecords);
+router.get("/trend", validateCadreTrendQuery, getCadreTrend);
+
+// Creating/editing/deleting Daily Data Entry records is view-only for SuperUser.
+router.use(requireAuth, forbidRole("SuperUser"));
+
 router.post("/daily", validateDailyRecordBody, createDailyRecord);
 router.put("/daily/:batchId", validateBatchIdParam, validateDailyRecordBody, updateDailyRecord);
 router.delete("/daily/:batchId/resigned/:epf", validateResignedEmployeeParams, deleteResignedEmployee);
-router.patch("/daily/:batchId/resigned/:epf/rejoin", validateResignedEmployeeParams, rejoinResignedEmployee);
+router.patch(
+  "/daily/:batchId/resigned/:epf/rejoin",
+  validateResignedEmployeeParams,
+  validateRejoinBody,
+  rejoinResignedEmployee,
+);
 router.delete("/daily/:batchId", validateBatchIdParam, deleteDailyRecord);
-
-router.get("/trend", validateCadreTrendQuery, getCadreTrend);
 
 module.exports = router;

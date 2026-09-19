@@ -1,9 +1,9 @@
 const TITLE_VARIANTS = {
   gray: "bg-slate-100 text-[#29485f]",
-  blue: "bg-teal-soft text-teal-dark",
+  blue: "bg-blue-100 text-black border-b-2 border-red-400 text-red-900",
   pink: "bg-orange-soft text-[#89511d]",
-  green: "bg-green-soft text-green-dark",
-  red: "bg-red-50 text-black",
+  green: "bg-green-200 text-green-dark",
+  red: "bg-red-100 text-black",
 };
 
 /** One boxed MO/TMO/Total group on the Cadre / Recruitment Details form. */

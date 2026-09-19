@@ -3,6 +3,7 @@ import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import { CountBadge } from "../../components/ui/Badge";
 import { FieldInput, FieldSelect } from "../../components/ui/FormField";
+import useAuth from "../../hooks/useAuth";
 import Swal from "sweetalert2";
 import { CiEdit } from "react-icons/ci";
 import { MdDeleteForever } from "react-icons/md";
@@ -42,14 +43,17 @@ const formatDate = (date) => {
 };
 
 /**
- * Manage Employees (Employee Master) - admin-only page: shows the 10 most
- * recently added employees by default, lets the admin search for any other
- * employee by EPF number, and create/edit/delete employee details. Route is
- * gated by <ProtectedRoute roles={["Administrator"]} /> in AppRoutes; the
- * server independently enforces the same restriction on every /employees
- * write (and read) call.
+ * Manage Employees (Employee Master) - shows the 10 most recently added
+ * employees by default, lets the user search for any other employee by EPF
+ * number, and (Administrator only) edit employee details. Route is gated by
+ * <ProtectedRoute roles={["Administrator", "SuperUser"]} /> in AppRoutes;
+ * the server independently enforces the same read/write split on every
+ * /employees call.
  */
 const ManageEmployeesPage = () => {
+  const { user } = useAuth();
+  // SuperUser can view every employee but never add/edit/delete one.
+  const canEdit = user?.role?.userRole !== "SuperUser";
   const [employees, setEmployees] = useState([]);
   const [designations, setDesignations] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -541,7 +545,9 @@ const ManageEmployeesPage = () => {
                     <th className="py-2 pr-3">Section</th>
                     <th className="py-2 pr-3">Date of Join</th>
                     <th className="py-2 pr-3">Status</th>
-                    <th className="py-2 pr-3 text-center">Actions</th>
+                    {canEdit && (
+                      <th className="py-2 pr-3 text-center">Actions</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -579,25 +585,27 @@ const ManageEmployeesPage = () => {
                           {row.dateOfResign ? "Resigned" : "Active"}
                         </span>
                       </td>
-                      <td className="py-2.5 pr-3">
-                        <div className="flex gap-2 justify-center">
-                          <button
-                            className="py-1.5 px-2.5 bg-blue-50 rounded-sm border border-blue-200 cursor-pointer hover:bg-blue-100 duration-200"
-                            onClick={() => handleEdit(row)}
-                            title="Edit employee"
-                          >
-                            <CiEdit size={18} color="#2563eb" />
-                          </button>
-                          {/* <button
+                      {canEdit && (
+                        <td className="py-2.5 pr-3">
+                          <div className="flex gap-2 justify-center">
+                            <button
+                              className="py-1.5 px-2.5 bg-blue-50 rounded-sm border border-blue-200 cursor-pointer hover:bg-blue-100 duration-200"
+                              onClick={() => handleEdit(row)}
+                              title="Edit employee"
+                            >
+                              <CiEdit size={18} color="#2563eb" />
+                            </button>
+                            {/* <button
                             className="py-1.5 px-2.5 bg-red-50 rounded-sm border border-red-200 cursor-pointer hover:bg-red-100 duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                             onClick={() => handleDelete(row)}
                             disabled={deletingId === row.id}
                             title="Delete employee"
                           >
                             <MdDeleteForever size={18} color="#dc2626" />
-                          </button> */} 
-                        </div>
-                      </td>
+                          </button> */}
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

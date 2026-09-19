@@ -24,4 +24,10 @@ const me = asyncHandler(async (req, res) => {
   res.json({ success: true, data: { user: req.user } });
 });
 
-module.exports = { register, login, me };
+// POST /api/auth/change-password
+const changePassword = asyncHandler(async (req, res) => {
+  await authService.changePassword(req.user.id, req.body);
+  res.json({ success: true, message: "Password changed." });
+});
+
+module.exports = { register, login, me, changePassword };

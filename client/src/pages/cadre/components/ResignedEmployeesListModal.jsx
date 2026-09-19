@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Swal from "sweetalert2";
 import Button from "../../../components/ui/Button";
 import { getDesignations } from "../../../services/designationServices";
 import { getDepartments } from "../../../services/departmentServices";
@@ -173,25 +174,61 @@ export default function ResignedEmployeesListModal({
 
   const handleRejoin = async (emp) => {
     if (deletingEpf || rejoiningEpf) return;
-    if (
-      !window.confirm(
-        `Rejoin ${emp.employeeName || "this employee"} (EPF ${emp.epf})? They'll be reactivated and counted as Rejoined ${emp.isMo ? "MO" : "TMO"}.`,
+
+    let rejoinDate = null;
+    if (isTransfer) {
+      if (
+        !window.confirm(
+          `Rejoin ${emp.employeeName || "this employee"} (EPF ${emp.epf})? They'll be reactivated and counted as Rejoined ${emp.isMo ? "MO" : "TMO"}.`,
+        )
       )
-    )
-      return;
+        return;
+    } else {
+      const today = new Date().toISOString().slice(0, 10);
+      const { value, isConfirmed } = await Swal.fire({
+        title: `Rejoin ${emp.employeeName || "this employee"}?`,
+        html: `EPF <b>${emp.epf}</b> will be reactivated and counted as Rejoined ${emp.isMo ? "MO" : "TMO"} on the date below.`,
+        icon: "question",
+        input: "date",
+        inputLabel: "Rejoined Date",
+        inputValue: today,
+        inputAttributes: { min: emp.dateOfResign || undefined, max: today },
+        showCancelButton: true,
+        confirmButtonText: "Rejoin",
+        cancelButtonText: "Cancel",
+        inputValidator: (value) => {
+          if (!value) return "Please pick a date.";
+          if (emp.dateOfResign && value < emp.dateOfResign) {
+            return "Rejoined Date can't be before the Date of Resign.";
+          }
+          if (value > today) return "Rejoined Date can't be in the future.";
+        },
+      });
+      if (!isConfirmed) return;
+      rejoinDate = value;
+    }
 
     if (batchId) {
       setRejoiningEpf(emp.epf);
       setError("");
       let result;
       try {
-        result = await rejoinResignedEmployeeApi(batchId, emp.epf);
+        result = await rejoinResignedEmployeeApi(batchId, emp.epf, rejoinDate);
       } catch (err) {
         setError(err.message || "Failed to rejoin this employee.");
         setRejoiningEpf(null);
         return;
       }
       setRejoiningEpf(null);
+      if (rejoinDate) {
+        Swal.fire({
+          title: "Rejoined!",
+          text: `Recorded as Rejoined on ${rejoinDate}.`,
+          icon: "success",
+          timer: 2000,
+          showConfirmButton: false,
+        });
+      }
       onEmployeesChange(employees.filter((e) => e.epf !== emp.epf));
       onCountsChange(
         isTransfer ? result.tfmo : result.rmo,

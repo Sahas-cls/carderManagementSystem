@@ -37,6 +37,15 @@ const requireAuth = asyncHandler(async (req, res, next) => {
     throw new ApiError(403, "This account is pending admin activation.");
   }
 
+  // An admin-reset password forces the account through /auth/change-password
+  // before anything else is reachable - /auth/me stays open too so the
+  // client can still bootstrap the session and read the flag.
+  const onChangePasswordFlow =
+    req.baseUrl === "/api/auth" && (req.path === "/change-password" || req.path === "/me");
+  if (user.mustChangePassword && !onChangePasswordFlow) {
+    throw new ApiError(403, "You must change your password before continuing.", "MUST_CHANGE_PASSWORD");
+  }
+
   req.user = user;
   next();
 });
@@ -55,4 +64,16 @@ function requireRole(...roleNames) {
   };
 }
 
-module.exports = { requireAuth, requireRole };
+/** Blocks the given role name(s); every other role (including none matched) proceeds. Use after requireAuth, for write endpoints a view-only role (e.g. SuperUser) shouldn't reach. */
+function forbidRole(...roleNames) {
+  const blocked = new Set(roleNames.map((r) => r.toLowerCase()));
+  return (req, res, next) => {
+    const roleName = req.user?.role?.userRole;
+    if (roleName && blocked.has(roleName.toLowerCase())) {
+      return next(new ApiError(403, "Your account only has view access."));
+    }
+    next();
+  };
+}
+
+module.exports = { requireAuth, requireRole, forbidRole };

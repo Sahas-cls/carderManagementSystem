@@ -3,6 +3,7 @@ import { FieldInput } from "../../components/ui/FormField";
 import { getFactories } from "../../services/factoryServices";
 import { useEffect } from "react";
 import useDailyCadreRecords from "../../hooks/useDailyCadreRecords";
+import useAuth from "../../hooks/useAuth";
 import Card from "../../components/ui/Card";
 import { CiEdit } from "react-icons/ci";
 import { MdDeleteForever } from "react-icons/md";
@@ -16,6 +17,9 @@ import {
 
 const ManageFactoryPage = () => {
   const { factories, loading, refetch } = useDailyCadreRecords();
+  const { user } = useAuth();
+  // SuperUser can view every factory but never add/edit/delete one.
+  const canEdit = user?.role?.userRole !== "SuperUser";
   const [notification, setNotification] = useState("");
   const [editing, setEditing] = useState(null); // Changed to null
   const [factory, setFactory] = useState({
@@ -187,14 +191,14 @@ const ManageFactoryPage = () => {
   return (
     <div className="p-4">
       <div className="flex justify-end mb-4">
-        {!addFactory && (
+        {!addFactory && canEdit && (
           <Button variant="primary" onClick={() => setAddFactory(true)}>
             Add Factory
           </Button>
         )}
       </div>
 
-      {addFactory && (
+      {addFactory && canEdit && (
         <div className="w-full border p-6 rounded-md border-gray-300 shadow-md relative bg-white mb-6">
           <form onSubmit={handleSubmit}>
             <div className="flex flex-wrap md:flex-nowrap gap-4">
@@ -276,7 +280,9 @@ const ManageFactoryPage = () => {
                     <th className="py-2 pr-3">Factory Name</th>
                     <th className="py-2 pr-3">Created By</th>
                     <th className="py-2 pr-3">Created At</th>
-                    <th className="py-2 pr-3 text-center">Actions</th>
+                    {canEdit && (
+                      <th className="py-2 pr-3 text-center">Actions</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -297,26 +303,28 @@ const ManageFactoryPage = () => {
                       <td className="py-2.5 pr-3 text-gray-500 text-xs">
                         {visualizeDateTime(fac?.createdAt)}
                       </td>
-                      <td className="py-2.5 pr-3">
-                        <div className="flex gap-2 justify-center">
-                          <button
-                            className="py-1.5 px-2.5 bg-blue-50 rounded-sm border border-blue-200 cursor-pointer hover:bg-blue-100 duration-200"
-                            onClick={() => handleEdit(fac)}
-                            title="Edit factory"
-                          >
-                            <CiEdit size={18} color="#2563eb" />
-                          </button>
-                          <button
-                            className="py-1.5 px-2.5 bg-red-50 rounded-sm border border-red-200 cursor-pointer hover:bg-red-100 duration-200"
-                            onClick={() =>
-                              handleDelete(fac.id, fac?.factoryName)
-                            }
-                            title="Delete factory"
-                          >
-                            <MdDeleteForever size={18} color="#dc2626" />
-                          </button>
-                        </div>
-                      </td>
+                      {canEdit && (
+                        <td className="py-2.5 pr-3">
+                          <div className="flex gap-2 justify-center">
+                            <button
+                              className="py-1.5 px-2.5 bg-blue-50 rounded-sm border border-blue-200 cursor-pointer hover:bg-blue-100 duration-200"
+                              onClick={() => handleEdit(fac)}
+                              title="Edit factory"
+                            >
+                              <CiEdit size={18} color="#2563eb" />
+                            </button>
+                            <button
+                              className="py-1.5 px-2.5 bg-red-50 rounded-sm border border-red-200 cursor-pointer hover:bg-red-100 duration-200"
+                              onClick={() =>
+                                handleDelete(fac.id, fac?.factoryName)
+                              }
+                              title="Delete factory"
+                            >
+                              <MdDeleteForever size={18} color="#dc2626" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

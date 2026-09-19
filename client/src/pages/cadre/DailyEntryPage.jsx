@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import Swal from "sweetalert2";
 import Button from "../../components/ui/Button";
 import Notice from "../../components/ui/Notice";
 import useActiveBudget from "../../hooks/useActiveBudget";
 import useActiveTcBudget from "../../hooks/useActiveTcBudget";
 import useAuth from "../../hooks/useAuth";
 import useDailyCadreRecords from "../../hooks/useDailyCadreRecords";
-import useNotice from "../../hooks/useNotice";
 import { getPreviousDailyRecord } from "../../services/dailyCadreServices";
 import {
   EMPTY_CADRE_FORM,
@@ -19,8 +19,29 @@ import CadreDetailsCard from "./components/CadreDetailsCard";
 import DailyRecordsTable from "./components/DailyRecordsTable";
 import RecordInfoCard from "./components/RecordInfoCard";
 
+function notifySuccess(message, title = "Success!") {
+  Swal.fire({
+    title,
+    text: message,
+    icon: "success",
+    timer: 2000,
+    showConfirmButton: false,
+  });
+}
+
+function notifyError(message, title = "Error!") {
+  Swal.fire({
+    title,
+    text: message,
+    icon: "error",
+    confirmButtonText: "OK",
+  });
+}
+
 export default function DailyEntryPage() {
   const { user } = useAuth();
+  // SuperUser can view every Daily Data Entry record but never add/edit/delete one.
+  const canEdit = user?.role?.userRole !== "SuperUser";
   // The logged-in user's assigned factory (Manage Users, admin-set) pre-fills
   // the form and scopes the records table below - users with no factory
   // assigned fall back to the old "pick one" behaviour, unfiltered.
@@ -59,15 +80,9 @@ export default function DailyEntryPage() {
   const [form, setForm] = useState(emptyForm);
   const [editingRecord, setEditingRecord] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [notice, showNotice] = useNotice();
-
-  useEffect(() => {
-    if (window.innerWidth < 500) {
-      window.scrollTo({ top: 300, behavior: "smooth" });
-      return;
-    }
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [notice]);
+  // batchId of the record most recently added/updated in this session - the
+  // records table highlights that row so the user can spot what they just saved.
+  const [lastSavedBatchId, setLastSavedBatchId] = useState(null);
 
   // Planned MO/TMO is no longer typed in by hand - it always mirrors whichever budget is
   // currently active (Budget Master) for the selected factory, so it's derived here rather
@@ -157,11 +172,11 @@ export default function DailyEntryPage() {
 
   const handleAdd = async () => {
     if (!form.factoryId) {
-      showNotice("Please select a factory first.", "err");
+      notifyError("Please select a factory first.", "Validation Error");
       return;
     }
     if (!form.date) {
-      showNotice("Please enter a Date.", "err");
+      notifyError("Please enter a Date.", "Validation Error");
       return;
     }
 
@@ -177,11 +192,11 @@ export default function DailyEntryPage() {
       "dateOfJoin",
       "dateOfResign",
       "resignationReasonId",
-    ];
+    ];  
     if (resignedTotal > 0 && resignedEmployees.length !== resignedTotal) {
-      showNotice(
+      notifyError(
         `Please enter details for all ${resignedTotal} resigned employee(s) (see the Resigned/Terminated popup) before submitting.`,
-        "err",
+        "Validation Error",
       );
       return;
     }
@@ -190,9 +205,9 @@ export default function DailyEntryPage() {
         REQUIRED_EMPLOYEE_FIELDS.some((field) => !emp[field]),
       )
     ) {
-      showNotice(
+      notifyError(
         "One or more resigned employee rows are missing details - please complete them before submitting.",
-        "err",
+        "Validation Error",
       );
       return;
     }
@@ -201,20 +216,25 @@ export default function DailyEntryPage() {
       (Number(form.transferMO) || 0) + (Number(form.transferTMO) || 0);
     const transferEmployees = form.transferEmployees || [];
     if (transferTotal > 0 && transferEmployees.length !== transferTotal) {
-      showNotice(
+      notifyError(
         `Please enter details for all ${transferTotal} transfer employee(s) (see the Transfer popup) before submitting.`,
-        "err",
+        "Validation Error",
       );
       return;
     }
+    // Transfer rows don't collect Date of Joining (see ResignedEmployeesModal's
+    // isRowComplete) - New Designation is required instead.
+    const REQUIRED_TRANSFER_FIELDS = REQUIRED_EMPLOYEE_FIELDS.filter(
+      (field) => field !== "dateOfJoin",
+    ).concat("newDesignationId");
     if (
       transferEmployees.some((emp) =>
-        REQUIRED_EMPLOYEE_FIELDS.some((field) => !emp[field]),
+        REQUIRED_TRANSFER_FIELDS.some((field) => !emp[field]),
       )
     ) {
-      showNotice(
+      notifyError(
         "One or more transfer employee rows are missing details - please complete them before submitting.",
-        "err",
+        "Validation Error",
       );
       return;
     }
@@ -224,14 +244,16 @@ export default function DailyEntryPage() {
     try {
       if (isEditing) {
         await updateRecord(editingRecord.batchId, payload);
-        showNotice("Record updated successfully.", "ok");
+        setLastSavedBatchId(editingRecord.batchId);
+        notifySuccess("Record updated successfully.");
       } else {
-        await addRecord(payload);
-        showNotice("Record added successfully.", "ok");
+        const saved = await addRecord(payload);
+        setLastSavedBatchId(saved?.batchId ?? null);
+        notifySuccess("Record added successfully.");
       }
       resetForm();
     } catch (err) {
-      showNotice(err.message || "Failed to save the record.", "err");
+      notifyError(err.message || "Failed to save the record.");
     } finally {
       setSaving(false);
     }
@@ -239,16 +261,13 @@ export default function DailyEntryPage() {
 
   const handleClear = () => {
     resetForm();
-    showNotice("Entry fields cleared.", "ok");
+    notifySuccess("Entry fields cleared.");
   };
 
   const handleEdit = (record) => {
     setForm(recordToForm(record));
     setEditingRecord(record);
-    showNotice(
-      "Record loaded. Make your changes and click Update Record.",
-      "ok",
-    );
+    notifySuccess("Record loaded. Make your changes and click Update Record.");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -257,28 +276,28 @@ export default function DailyEntryPage() {
     try {
       await deleteRecord(record.batchId);
       if (editingRecord?.batchId === record.batchId) resetForm();
-      showNotice("Record deleted.", "ok");
+      if (lastSavedBatchId === record.batchId) setLastSavedBatchId(null);
+      notifySuccess("Record deleted.", "Deleted!");
     } catch (err) {
-      showNotice(err.message || "Failed to delete the record.", "err");
+      notifyError(err.message || "Failed to delete the record.");
     }
   };
 
   const handleDownload = async () => {
     if (!records.length) {
-      showNotice("There are no records to download.", "err");
+      notifyError("There are no records to download.", "Validation Error");
       return;
     }
     try {
       await exportDailyExcel(records);
-      showNotice("Daily Excel downloaded successfully.", "ok");
+      notifySuccess("Daily Excel downloaded successfully.");
     } catch (err) {
-      showNotice(err.message || "Failed to generate the Excel file.", "err");
+      notifyError(err.message || "Failed to generate the Excel file.");
     }
   };
 
   return (
     <div>
-      <Notice message={notice?.message} type={notice?.type} />
       {error && (
         <Notice message={`Failed to load records: ${error}`} type="err" />
       )}
@@ -307,12 +326,16 @@ export default function DailyEntryPage() {
       )}
 
       <div className="flex justify-end gap-2.5 mb-5">
-        <Button  onClick={handleClear} disabled={saving}>
-          Clear
-        </Button>
-        <Button  variant="primary" onClick={handleAdd} disabled={saving}>
-          {saving ? "Saving…" : isEditing ? "Update Record" : "Add to Table"}
-        </Button>
+        {canEdit && (
+          <>
+            <Button onClick={handleClear} disabled={saving}>
+              Clear
+            </Button>
+            <Button variant="primary" onClick={handleAdd} disabled={saving}>
+              {saving ? "Saving…" : isEditing ? "Update Record" : "Add to Table"}
+            </Button>
+          </>
+        )}
         <Button  variant="teal" onClick={handleDownload}>
           Download Excel
         </Button>
@@ -325,8 +348,9 @@ export default function DailyEntryPage() {
       ) : (
         <DailyRecordsTable
           records={records}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
+          highlightBatchId={lastSavedBatchId}
+          onEdit={canEdit ? handleEdit : undefined}
+          onDelete={canEdit ? handleDelete : undefined}
           month={recordsMonth}
           onMonthChange={setRecordsMonth}
         />

@@ -153,7 +153,8 @@ export default function ManageUsersPage() {
           <div className="p-4 flex flex-col gap-3">
             <p className="text-sm text-app-text">
               New temporary password for <b>{resetResult.userName}</b> — share
-              it with them now, it won&apos;t be shown again:
+              it with them now, it won&apos;t be shown again. They&apos;ll be
+              required to set their own password on next login:
             </p>
             <div className="flex items-center gap-2 flex-wrap">
               <code className="bg-slate-100 border border-slate-300 rounded-md px-3 py-2 text-sm font-mono">

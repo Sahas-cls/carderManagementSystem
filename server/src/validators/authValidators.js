@@ -44,4 +44,26 @@ function validateLoginBody(req, res, next) {
   }
 }
 
-module.exports = { validateRegisterBody, validateLoginBody };
+/** POST /auth/change-password body. */
+function validateChangePasswordBody(req, res, next) {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+
+    if (typeof currentPassword !== "string" || !currentPassword) {
+      throw new ApiError(400, "currentPassword is required.");
+    }
+    if (typeof newPassword !== "string" || newPassword.length < MIN_PASSWORD_LENGTH) {
+      throw new ApiError(400, `New password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+    }
+    if (newPassword === currentPassword) {
+      throw new ApiError(400, "New password must be different from the current password.");
+    }
+
+    req.body = { currentPassword, newPassword };
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { validateRegisterBody, validateLoginBody, validateChangePasswordBody };

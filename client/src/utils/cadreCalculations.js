@@ -55,6 +55,10 @@ export const EMPTY_CADRE_FORM = {
   // Same, for the Transfer tile (e.g. a promotion that moves someone off
   // this MO/TMO carder) - one row per transferMO+transferTMO count.
   transferEmployees: [],
+  // Who's currently credited as Rejoined on this record (view-only - see
+  // CadreDetailsCard.jsx's Rejoined tile eye icon) - always read from the
+  // server (recordToForm below), never built or sent by this form itself.
+  rejoinedEmployees: [],
 };
 
 /**
@@ -244,6 +248,7 @@ export function recordToForm(record) {
     tcAbsent: record.tcab || 0,
     resignedEmployees: record.resignedEmployees || [],
     transferEmployees: record.transferEmployees || [],
+    rejoinedEmployees: record.rejoinedEmployees || [],
   };
 }
 

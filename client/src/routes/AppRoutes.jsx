@@ -8,6 +8,7 @@ import WeeklyViewPage from "../pages/cadre/WeeklyViewPage";
 import WeekEntryPage from "../pages/users/WeekEntryPage";
 import LoginPage from "../pages/auth/LoginPage";
 import RegisterPage from "../pages/auth/RegisterPage";
+import ChangePasswordPage from "../pages/auth/ChangePasswordPage";
 import ManageUsersPage from "../pages/admin/ManageUsersPage";
 import ProtectedRoute from "./ProtectedRoute";
 import ManageFactoryPage from "../pages/admin/ManageFactoryPage";
@@ -30,14 +31,25 @@ export default function AppRoutes() {
           </Route>
 
           <Route element={<ProtectedRoute />}>
+            {/* Rendered inside the branding/card chrome, not the full nav shell - an
+                account with mustChangePassword is confined here until it changes. */}
+            <Route element={<AuthLayout />}>
+              <Route path="/change-password" element={<ChangePasswordPage />} />
+            </Route>
+
             <Route element={<UserLayout />}>
               <Route path="/" element={<DashboardPage />} />
               <Route path="/week-entry" element={<WeekEntryPage />} />
               <Route path="/daily-entry" element={<DailyEntryPage />} />
               <Route path="/weekly-view" element={<WeeklyViewPage />} />
 
+              {/* Manage Users is sensitive (lists every account's email etc.) - Administrator-only, not SuperUser. */}
               <Route element={<ProtectedRoute roles={["Administrator"]} />}>
                 <Route path="/manage-users" element={<ManageUsersPage />} />
+              </Route>
+
+              {/* The rest of the Admin section is viewable (read-only) by SuperUser too - each page itself hides its add/edit/delete controls for that role. */}
+              <Route element={<ProtectedRoute roles={["Administrator", "SuperUser"]} />}>
                 <Route path="/manage-employees" element={<ManageEmployeesPage />} />
                 <Route path="/factory-master" element={<ManageFactoryPage />} />
                 <Route path="/budget-master" element={<ManageBudget />} />

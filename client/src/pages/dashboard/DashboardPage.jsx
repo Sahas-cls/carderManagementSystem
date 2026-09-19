@@ -35,7 +35,12 @@ function SectionHeading({ title, context }) {
 export default function DashboardPage() {
   const { records, factories } = useDailyCadreRecords();
   const { user } = useAuth();
-  const isAdmin = user?.role?.userRole === "Administrator";
+  // SuperUser sees the exact same dashboard as an Administrator (Factory
+  // filter, Absenteeism section, etc.) - it's view-only elsewhere in the app,
+  // but the dashboard itself has no add/edit/delete controls to restrict.
+  const isAdmin =
+    user?.role?.userRole === "Administrator" ||
+    user?.role?.userRole === "SuperUser";
 
   // The logged-in user's assigned factory (same convention as Daily Data
   // Entry) - users with no factory assigned (e.g. an unassigned Administrator)
@@ -299,7 +304,7 @@ export default function DashboardPage() {
           general user always sees their own factory, never a picker). */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5 bg-white border border-app-border rounded-lg px-4 py-3 shadow-sm">
         <div>
-          <h1 className="text-base font-bold text-app-text">Dashboard</h1>
+          {/* <h1 className="text-base font-bold text-app-text">Dashboard</h1> */}
           <p className="text-xs text-app-muted mt-0.5">
             {isAdmin
               ? "Group-wide workforce insights, by factory and year."

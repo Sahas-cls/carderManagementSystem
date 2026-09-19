@@ -22,6 +22,15 @@ export default function ProtectedRoute({ roles }) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
+  // An admin-reset password forces the account through /change-password
+  // before anything else - see server/src/middleware/auth.js's matching gate.
+  if (user.mustChangePassword && location.pathname !== "/change-password") {
+    return <Navigate to="/change-password" replace />;
+  }
+  if (!user.mustChangePassword && location.pathname === "/change-password") {
+    return <Navigate to="/" replace />;
+  }
+
   if (roles && !roles.includes(user.role?.userRole)) {
     return <Navigate to="/" replace />;
   }

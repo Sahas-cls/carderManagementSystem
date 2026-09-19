@@ -265,6 +265,21 @@ function flattenExitEmployee(e) {
   };
 }
 
+/** Shape for one row of rejoinedEmployees below - who's currently credited as Rejoined on this batch. */
+function flattenRejoinedEmployee(e) {
+  return {
+    epf: e.epf,
+    employeeName: e.employeeName,
+    designationId: e.designationId,
+    departmentId: e.departmentId,
+    sectionId: e.sectionId,
+    dateOfJoin: e.dateOfJoin,
+    dateOfResign: e.dateOfResign,
+    dateOfRejoin: e.dateOfRejoin,
+    isMo: e.rejoinedIsMo,
+  };
+}
+
 function buildFlatRecord({
   batchId,
   date,
@@ -274,6 +289,7 @@ function buildFlatRecord({
   createdAt,
   resignedEmployees = [],
   transferEmployees = [],
+  rejoinedEmployees = [],
 }) {
   return {
     batchId,
@@ -286,6 +302,10 @@ function buildFlatRecord({
     resignedEmployees: resignedEmployees.map(flattenExitEmployee),
     // Same, for the Transfer tile's employees (isTransfer: true on Employee).
     transferEmployees: transferEmployees.map(flattenExitEmployee),
+    // Who's currently credited as Rejoined on this batch (view-only, see
+    // ResignedEmployeesListModal/rejoinResignedEmployee) - unlike the two
+    // lists above, never sent back by the client, always read from the DB.
+    rejoinedEmployees: rejoinedEmployees.map(flattenRejoinedEmployee),
     week: week ? formatWeekLabel(week.week) : "-",
     weekId: week ? week.id : null,
     factory: factory ? factory.factoryName : "Unknown Factory",
@@ -427,6 +447,9 @@ async function createDailyRecord(payload) {
       createdAt: tc.createdAt,
       resignedEmployees: payload.resignedEmployees,
       transferEmployees: payload.transferEmployees,
+      // A brand-new batch can't have anyone rejoined-credited to it yet -
+      // nothing else could reference this batchId before this transaction.
+      rejoinedEmployees: [],
     });
   });
 }
@@ -485,6 +508,11 @@ async function performUpdate(batchId, payload, transaction) {
   await employeeService.syncResignedEmployees(payload.resignedEmployees, batchId, transaction, false);
   await employeeService.syncResignedEmployees(payload.transferEmployees, batchId, transaction, true);
 
+  // Unlike resigned/transferEmployees above, rejoinedEmployees never comes
+  // from the client's payload - it's purely server-side link state (see
+  // rejoinResignedEmployee), so it's read fresh here on every re-persist.
+  const rejoinedEmployees = await employeeService.listRejoinedByBatchIds([batchId], transaction);
+
   return buildFlatRecord({
     batchId,
     date,
@@ -494,6 +522,7 @@ async function performUpdate(batchId, payload, transaction) {
     createdAt: existing.createdAt,
     resignedEmployees: payload.resignedEmployees,
     transferEmployees: payload.transferEmployees,
+    rejoinedEmployees,
   });
 }
 
@@ -589,25 +618,68 @@ async function deleteResignedEmployee(batchId, epf) {
  * per-employee Rejoin button in ResignedEmployeesListModal.jsx. Unlike
  * deleteResignedEmployee, the Employee row survives
  * (employeeService.rejoinEmployee just clears its exit fields and unlinks it
- * from this batch): this batch's Resigned or Transfer MO/TMO count (based on
- * the row's isTransfer flag) moves down by one and its Rejoined MO/TMO count
- * moves up by one (same type - MO stays MO, TMO stays TMO) regardless of
- * which tile it came from - anyone rejoining the cadre counts as Rejoined.
- * The whole batch is then re-persisted so everything derived from those
- * counts (Net, Allocated_Current, Present) is recomputed to match, in the
- * same transaction.
+ * from this batch).
+ *
+ * Transfer keeps the original, simple behavior: this same batch's Transfer
+ * MO/TMO count moves down by one and its Rejoined MO/TMO count moves up by
+ * one, in a single re-persist.
+ *
+ * Resigned/Terminated instead takes a `rejoinDate` (required, asked via the
+ * modal's SweetAlert date prompt): this batch's Resigned MO/TMO count still
+ * moves down by one here (this is where the resignation itself was
+ * recorded), but the Rejoined MO/TMO credit goes to whichever Daily Data
+ * Entry batch actually covers that factory on `rejoinDate` - a different
+ * batch in the common case (rejoining days/weeks after the resignation),
+ * the very same one when it happens to be dated the same day (folded into
+ * one update, same as Transfer). Throws 400 if that date has no entry yet
+ * for the factory - the admin has to submit that day's entry first.
  */
-async function rejoinResignedEmployee(batchId, epf) {
+async function rejoinResignedEmployee(batchId, epf, rejoinDate) {
   return sequelize.transaction(async (transaction) => {
-    const raw = await getRawPayloadForBatch(batchId, transaction);
-    const { isMo, isTransfer } = await employeeService.rejoinEmployee(epf, batchId, transaction);
+    const linked = await employeeService.findLinkedEmployee(epf, batchId, transaction);
+    if (!linked) {
+      throw new ApiError(404, `Employee ${epf} is not on record ${batchId}.`);
+    }
+    const { isTransfer } = linked;
 
-    const payload = {
-      ...raw,
-      rejoinedMO: isMo ? raw.rejoinedMO + 1 : raw.rejoinedMO,
-      rejoinedTMO: !isMo ? raw.rejoinedTMO + 1 : raw.rejoinedTMO,
-    };
-    if (isTransfer) {
+    let targetBatchId = batchId;
+    if (!isTransfer) {
+      if (!rejoinDate) {
+        throw new ApiError(400, "Rejoined Date is required.");
+      }
+      if (linked.dateOfResign && rejoinDate < linked.dateOfResign) {
+        throw new ApiError(400, "Rejoined Date cannot be before the Date of Resign.");
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      if (rejoinDate > today) {
+        throw new ApiError(400, "Rejoined Date cannot be in the future.");
+      }
+
+      const originalPlanned = await PlannedCarder.findOne({ where: { batchId }, transaction });
+      if (rejoinDate !== originalPlanned.date) {
+        const target = await PlannedCarder.findOne({
+          where: { factoryId: originalPlanned.factoryId, date: rejoinDate },
+          order: [["createdAt", "DESC"]],
+          transaction,
+        });
+        if (!target) {
+          throw new ApiError(
+            400,
+            `No Daily Data Entry exists for this factory on ${rejoinDate}. Submit that day's entry first, then rejoin from there.`,
+          );
+        }
+        targetBatchId = target.batchId;
+      }
+    }
+
+    const raw = await getRawPayloadForBatch(batchId, transaction);
+    const { isMo, isTransfer: rowIsTransfer } = await employeeService.rejoinEmployee(epf, batchId, transaction, {
+      rejoinDate: isTransfer ? null : rejoinDate,
+      rejoinedBatchId: targetBatchId,
+    });
+
+    const payload = { ...raw };
+    if (rowIsTransfer) {
       payload.transferMO = isMo ? Math.max(0, raw.transferMO - 1) : raw.transferMO;
       payload.transferTMO = !isMo ? Math.max(0, raw.transferTMO - 1) : raw.transferTMO;
       payload.transferEmployees = raw.transferEmployees.filter((e) => e.epf !== epf);
@@ -617,7 +689,26 @@ async function rejoinResignedEmployee(batchId, epf) {
       payload.resignedEmployees = raw.resignedEmployees.filter((e) => e.epf !== epf);
     }
 
-    return performUpdate(batchId, payload, transaction);
+    if (targetBatchId === batchId) {
+      payload.rejoinedMO = isMo ? raw.rejoinedMO + 1 : raw.rejoinedMO;
+      payload.rejoinedTMO = !isMo ? raw.rejoinedTMO + 1 : raw.rejoinedTMO;
+      return performUpdate(batchId, payload, transaction);
+    }
+
+    // Different record for the chosen Rejoined Date - decrement Resigned
+    // here, credit Rejoined over there.
+    const updatedOriginal = await performUpdate(batchId, payload, transaction);
+    const targetRaw = await getRawPayloadForBatch(targetBatchId, transaction);
+    await performUpdate(
+      targetBatchId,
+      {
+        ...targetRaw,
+        rejoinedMO: isMo ? targetRaw.rejoinedMO + 1 : targetRaw.rejoinedMO,
+        rejoinedTMO: !isMo ? targetRaw.rejoinedTMO + 1 : targetRaw.rejoinedTMO,
+      },
+      transaction,
+    );
+    return updatedOriginal;
   });
 }
 
@@ -708,6 +799,13 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
     byBatch.get(row.batchId).push(row);
   });
 
+  const rejoinedEmployeeRows = await employeeService.listRejoinedByBatchIds([...batches.keys()]);
+  const rejoinedEmployeesByBatch = new Map();
+  rejoinedEmployeeRows.forEach((row) => {
+    if (!rejoinedEmployeesByBatch.has(row.rejoinedBatchId)) rejoinedEmployeesByBatch.set(row.rejoinedBatchId, []);
+    rejoinedEmployeesByBatch.get(row.rejoinedBatchId).push(row);
+  });
+
   const records = [...batches.entries()].map(([batchId, batch]) => {
     const pmo = batch.planned?.budget?.moCount ?? 0;
     const ptmo = batch.planned?.budget?.tmoCount ?? 0;
@@ -767,6 +865,7 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
       createdAt: batch.createdAt,
       resignedEmployees: employeesByBatch.get(batchId) || [],
       transferEmployees: transferEmployeesByBatch.get(batchId) || [],
+      rejoinedEmployees: rejoinedEmployeesByBatch.get(batchId) || [],
     });
   });
 

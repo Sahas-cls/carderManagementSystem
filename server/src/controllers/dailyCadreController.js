@@ -35,7 +35,11 @@ const deleteResignedEmployee = asyncHandler(async (req, res) => {
 
 // PATCH /api/cadre/daily/:batchId/resigned/:epf/rejoin
 const rejoinResignedEmployee = asyncHandler(async (req, res) => {
-  const record = await dailyCadreService.rejoinResignedEmployee(req.params.batchId, req.params.epf);
+  const record = await dailyCadreService.rejoinResignedEmployee(
+    req.params.batchId,
+    req.params.epf,
+    req.body?.rejoinDate,
+  );
   res.json({ success: true, data: record });
 });
 

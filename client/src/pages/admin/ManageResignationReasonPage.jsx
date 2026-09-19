@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import { FieldInput } from "../../components/ui/FormField";
+import useAuth from "../../hooks/useAuth";
 import Swal from "sweetalert2";
 import { CiEdit } from "react-icons/ci";
 import { MdDeleteForever } from "react-icons/md";
@@ -29,6 +30,9 @@ const visualizeDateTime = (date) => {
 };
 
 const ManageResignationReasonPage = () => {
+  const { user } = useAuth();
+  // SuperUser can view every resignation reason but never add/edit/delete one.
+  const canEdit = user?.role?.userRole !== "SuperUser";
   const [reasons, setReasons] = useState([]);
   const [loading, setLoading] = useState(true);
   const [reloadToken, setReloadToken] = useState(0);
@@ -205,7 +209,7 @@ const ManageResignationReasonPage = () => {
   return (
     <div className="p-4">
       <div className="flex justify-end mb-4">
-        {!showForm && (
+        {!showForm && canEdit && (
           <Button
             variant="primary"
             onClick={() => {
@@ -218,7 +222,7 @@ const ManageResignationReasonPage = () => {
         )}
       </div>
 
-      {showForm && (
+      {showForm && canEdit && (
         <Card
           title={editingId ? "Edit Reason" : "Add New Reason"}
           variant="navy"
@@ -301,7 +305,9 @@ const ManageResignationReasonPage = () => {
                     <th className="py-2 pr-3">Reason</th>
                     <th className="py-2 pr-3">Transfer Related</th>
                     <th className="py-2 pr-3">Created At</th>
-                    <th className="py-2 pr-3 text-center">Actions</th>
+                    {canEdit && (
+                      <th className="py-2 pr-3 text-center">Actions</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -325,24 +331,26 @@ const ManageResignationReasonPage = () => {
                       <td className="py-2.5 pr-3 text-gray-500 text-xs">
                         {visualizeDateTime(reason.createdAt)}
                       </td>
-                      <td className="py-2.5 pr-3">
-                        <div className="flex gap-2 justify-center">
-                          <button
-                            className="py-1.5 px-2.5 bg-blue-50 rounded-sm border border-blue-200 cursor-pointer hover:bg-blue-100 duration-200"
-                            onClick={() => handleEdit(reason)}
-                            title="Edit reason"
-                          >
-                            <CiEdit size={18} color="#2563eb" />
-                          </button>
-                          <button
-                            className="py-1.5 px-2.5 bg-red-50 rounded-sm border border-red-200 cursor-pointer hover:bg-red-100 duration-200"
-                            onClick={() => handleDelete(reason)}
-                            title="Delete reason"
-                          >
-                            <MdDeleteForever size={18} color="#dc2626" />
-                          </button>
-                        </div>
-                      </td>
+                      {canEdit && (
+                        <td className="py-2.5 pr-3">
+                          <div className="flex gap-2 justify-center">
+                            <button
+                              className="py-1.5 px-2.5 bg-blue-50 rounded-sm border border-blue-200 cursor-pointer hover:bg-blue-100 duration-200"
+                              onClick={() => handleEdit(reason)}
+                              title="Edit reason"
+                            >
+                              <CiEdit size={18} color="#2563eb" />
+                            </button>
+                            <button
+                              className="py-1.5 px-2.5 bg-red-50 rounded-sm border border-red-200 cursor-pointer hover:bg-red-100 duration-200"
+                              onClick={() => handleDelete(reason)}
+                              title="Delete reason"
+                            >
+                              <MdDeleteForever size={18} color="#dc2626" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

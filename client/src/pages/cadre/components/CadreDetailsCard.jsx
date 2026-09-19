@@ -5,6 +5,7 @@ import GroupField from "./GroupField";
 import Button from "../../../components/ui/Button";
 import ResignedEmployeesModal from "./ResignedEmployeesModal";
 import ResignedEmployeesListModal from "./ResignedEmployeesListModal";
+import RejoinedEmployeesListModal from "./RejoinedEmployeesListModal";
 import { FaEye } from "react-icons/fa";
 
 // Modal component
@@ -214,6 +215,7 @@ export default function CadreDetailsCard({
   const [showResignedListPopup, setShowResignedListPopup] = useState(false);
   const [showTransferPopup, setShowTransferPopup] = useState(false);
   const [showTransferListPopup, setShowTransferListPopup] = useState(false);
+  const [showRejoinedListPopup, setShowRejoinedListPopup] = useState(false);
 
   // "Released from Tr. Cen." MO/TMO isn't typed in directly - it's set
   // entirely by the "Transfer to Pro Line" split popup below, and persists
@@ -289,6 +291,14 @@ export default function CadreDetailsCard({
       setShowTransferPopup(true);
     }
   };
+
+  // View-only - who's currently credited as Rejoined on this entry (see
+  // RejoinedEmployeesListModal.jsx). Unlike Resigned/Transfer above, this is
+  // never built or edited on the client - it's read straight from the saved
+  // record (recordToForm), so a brand-new/unsaved entry always has none yet.
+  const rejoinedMO = parseInt(form.rejoinedMO) || 0;
+  const rejoinedTMO = parseInt(form.rejoinedTMO) || 0;
+  const rejoinedEmployees = form.rejoinedEmployees || [];
 
   return (
     <>
@@ -375,6 +385,14 @@ export default function CadreDetailsCard({
         }}
         onDeleted={onEmployeeDeleted}
         isTransfer
+      />
+
+      <RejoinedEmployeesListModal
+        isOpen={showRejoinedListPopup}
+        onClose={() => setShowRejoinedListPopup(false)}
+        employees={rejoinedEmployees}
+        rjmo={rejoinedMO}
+        rjtmo={rejoinedTMO}
       />
 
       <Card title="Cadre / Recruitment Details">
@@ -464,30 +482,45 @@ export default function CadreDetailsCard({
             />
           </CadreGroup>
 
-          <CadreGroup variant="blue" title="Rejoined MO/TMO">
-            <GroupField
-              label="MO"
-              type="number"
-              disabled
-              min="0"
-              value={form.rejoinedMO}
-              onChange={setField("rejoinedMO")}
-            />
-            <GroupField
-              label="TMO"
-              type="number"
-              disabled
-              min="0"
-              value={form.rejoinedTMO}
-              onChange={setField("rejoinedTMO")}
-            />
-            <GroupField
-              label="Total"
-              total
-              readOnly
-              value={totals.rejoinedTotal}
-            />
-          </CadreGroup>
+          <div className="relative">
+            <CadreGroup variant="blue" title="Rejoined MO/TMO">
+              <GroupField
+                label="MO"
+                type="number"
+                disabled
+                min="0"
+                value={form.rejoinedMO}
+                onChange={setField("rejoinedMO")}
+              />
+              <GroupField
+                label="TMO"
+                type="number"
+                disabled
+                min="0"
+                value={form.rejoinedTMO}
+                onChange={setField("rejoinedTMO")}
+              />
+              <GroupField
+                label="Total"
+                total
+                readOnly
+                value={totals.rejoinedTotal}
+              />
+            </CadreGroup>
+            <button
+              type="button"
+              onClick={() => setShowRejoinedListPopup(true)}
+              disabled={rejoinedEmployees.length === 0}
+              title={
+                rejoinedEmployees.length === 0
+                  ? "No rejoined employees on file yet"
+                  : "View rejoined employees"
+              }
+              className="absolute cursor-pointer top-2 right-1 min-w-6 shadow-md min-h-6 p-1 rounded-full border text-xs flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-white block border-slate-300 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+            >
+              <FaEye color="blue" size={20} />
+            </button>
+          </div>
 
           <CadreGroup
             variant="blue"
@@ -510,7 +543,7 @@ export default function CadreDetailsCard({
           </CadreGroup>
 
           <div className="relative">
-            <CadreGroup variant="red" title={<>Resigned </>}>
+            <CadreGroup variant="blue" title={<>Resigned </>}>
               <GroupField
                 label="MO"
                 type="number"
@@ -557,7 +590,7 @@ export default function CadreDetailsCard({
           </div>
 
           <div className="relative">
-            <CadreGroup title="Transfer" variant="red">
+            <CadreGroup title="Transfer" variant="blue">
               <GroupField
                 label="MO"
                 type="number"
@@ -636,7 +669,7 @@ export default function CadreDetailsCard({
             />
           </CadreGroup>
 
-          <CadreGroup title="Absenteeism">
+          <CadreGroup title="Absenteeism" variant="blue">
             <GroupField
               label="MO"
               type="number"

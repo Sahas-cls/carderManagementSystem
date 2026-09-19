@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import { FieldInput } from "../../components/ui/FormField";
+import useAuth from "../../hooks/useAuth";
 import Swal from "sweetalert2";
 import { CiEdit } from "react-icons/ci";
 import { MdDeleteForever } from "react-icons/md";
@@ -29,6 +30,9 @@ const visualizeDateTime = (date) => {
 };
 
 const ManageSectionPage = () => {
+  const { user } = useAuth();
+  // SuperUser can view every section but never add/edit/delete one.
+  const canEdit = user?.role?.userRole !== "SuperUser";
   const [sections, setSections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [reloadToken, setReloadToken] = useState(0);
@@ -190,7 +194,7 @@ const ManageSectionPage = () => {
   return (
     <div className="p-4">
       <div className="flex justify-end mb-4">
-        {!showForm && (
+        {!showForm && canEdit && (
           <Button
             variant="primary"
             onClick={() => {
@@ -203,7 +207,7 @@ const ManageSectionPage = () => {
         )}
       </div>
 
-      {showForm && (
+      {showForm && canEdit && (
         <Card title={editingId ? "Edit Section" : "Add New Section"} variant="navy">
           <form className="p-4 grid gap-y-2" onSubmit={handleSubmit}>
             <div className="flex flex-wrap md:flex-nowrap gap-4 items-end">
@@ -246,7 +250,9 @@ const ManageSectionPage = () => {
                   <tr className="text-left text-[11px] uppercase tracking-wide text-gray-500 border-b border-gray-200">
                     <th className="py-2 pr-3">Section Name</th>
                     <th className="py-2 pr-3">Created At</th>
-                    <th className="py-2 pr-3 text-center">Actions</th>
+                    {canEdit && (
+                      <th className="py-2 pr-3 text-center">Actions</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -254,24 +260,26 @@ const ManageSectionPage = () => {
                     <tr key={row.id} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
                       <td className="py-2.5 pr-3 font-medium text-gray-800">{row.sectionName}</td>
                       <td className="py-2.5 pr-3 text-gray-500 text-xs">{visualizeDateTime(row.createdAt)}</td>
-                      <td className="py-2.5 pr-3">
-                        <div className="flex gap-2 justify-center">
-                          <button
-                            className="py-1.5 px-2.5 bg-blue-50 rounded-sm border border-blue-200 cursor-pointer hover:bg-blue-100 duration-200"
-                            onClick={() => handleEdit(row)}
-                            title="Edit section"
-                          >
-                            <CiEdit size={18} color="#2563eb" />
-                          </button>
-                          <button
-                            className="py-1.5 px-2.5 bg-red-50 rounded-sm border border-red-200 cursor-pointer hover:bg-red-100 duration-200"
-                            onClick={() => handleDelete(row)}
-                            title="Delete section"
-                          >
-                            <MdDeleteForever size={18} color="#dc2626" />
-                          </button>
-                        </div>
-                      </td>
+                      {canEdit && (
+                        <td className="py-2.5 pr-3">
+                          <div className="flex gap-2 justify-center">
+                            <button
+                              className="py-1.5 px-2.5 bg-blue-50 rounded-sm border border-blue-200 cursor-pointer hover:bg-blue-100 duration-200"
+                              onClick={() => handleEdit(row)}
+                              title="Edit section"
+                            >
+                              <CiEdit size={18} color="#2563eb" />
+                            </button>
+                            <button
+                              className="py-1.5 px-2.5 bg-red-50 rounded-sm border border-red-200 cursor-pointer hover:bg-red-100 duration-200"
+                              onClick={() => handleDelete(row)}
+                              title="Delete section"
+                            >
+                              <MdDeleteForever size={18} color="#dc2626" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

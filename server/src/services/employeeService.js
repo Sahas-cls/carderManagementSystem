@@ -47,6 +47,11 @@ async function syncResignedEmployees(employees, batchId, transaction, isTransfer
       batchId,
       isMo: emp.isMo,
       isTransfer,
+      // They're resigning/transferring again - whatever they'd previously
+      // rejoined into is stale now, same idea as isMo/isTransfer being
+      // cleared on the other side (rejoinEmployee below).
+      rejoinedBatchId: null,
+      rejoinedIsMo: null,
       // Only meaningful for a Transfer-tile row (isTransfer: true) that was
       // originally TMO - whether they're staying (promoted to MO) or
       // leaving. Ignored/null for Resigned/Terminated rows.
@@ -106,17 +111,33 @@ async function deleteResignedEmployee(epf, batchId, transaction) {
 }
 
 /**
+ * Read-only peek at an employee currently linked to a batch - lets a caller
+ * inspect isTransfer/dateOfResign (e.g. to decide whether a Rejoined Date is
+ * required, and validate it) before committing to rejoinEmployee's mutation
+ * below. Returns null rather than throwing if the epf isn't linked to this
+ * batch, so the caller can shape its own 404 message.
+ */
+async function findLinkedEmployee(epf, batchId, transaction) {
+  return Employee.findOne({ where: { epf, batchId }, transaction });
+}
+
+/**
  * Reactivates one resigned/transferred employee - the "Rejoin" counterpart
  * to deleteResignedEmployee above. Instead of hard-deleting the Employee
  * row, clears its exit fields (dateOfResign, resignationReasonId,
  * newDesignationId) and unlinks it from the batch (batchId/isMo/
  * isTransfer), so the employee is active again and reappears as ordinary
- * employee master data. Returns the row's isMo and isTransfer as they were
- * before being cleared, so the caller can decrement the right tile
- * (Resigned or Transfer) and increment Rejoined by the right type; throws
- * 404 if that epf isn't currently linked to this batch.
+ * employee master data. `rejoinDate` (Resigned/Terminated only - the
+ * Transfer tile doesn't ask for one) is stored on dateOfRejoin, overwriting
+ * whatever was there before. `rejoinedBatchId` ties them to whichever batch
+ * actually got the Rejoined credit (see dailyCadreService.rejoinResignedEmployee)
+ * - rejoinedIsMo is recorded alongside it since isMo itself is being cleared
+ * here. Returns the row's isMo and isTransfer as they were before being
+ * cleared, so the caller can decrement the right tile (Resigned or Transfer)
+ * and increment Rejoined by the right type; throws 404 if that epf isn't
+ * currently linked to this batch.
  */
-async function rejoinEmployee(epf, batchId, transaction) {
+async function rejoinEmployee(epf, batchId, transaction, { rejoinDate = null, rejoinedBatchId = null } = {}) {
   const employee = await Employee.findOne({ where: { epf, batchId }, transaction });
   if (!employee) {
     throw new ApiError(404, `Employee ${epf} is not on record ${batchId}.`);
@@ -131,17 +152,30 @@ async function rejoinEmployee(epf, batchId, transaction) {
       isMo: null,
       isTransfer: null,
       promotedToMo: null,
+      dateOfRejoin: rejoinDate || null,
+      rejoinedBatchId: rejoinedBatchId || null,
+      rejoinedIsMo: rejoinedBatchId ? isMo : null,
     },
     { transaction },
   );
   return { epf, isMo, isTransfer };
 }
 
-/** Unlinks every employee tied to a batch (used when the daily entry itself is deleted) - doesn't delete the employee record. */
+/**
+ * Unlinks every employee tied to a batch (used when the daily entry itself
+ * is deleted) - doesn't delete the employee record. Clears both directions:
+ * employees resigned/transferred INTO this batch (batchId), and employees
+ * rejoined-credited to this batch (rejoinedBatchId) - the batch is gone
+ * either way, so neither link should dangle.
+ */
 async function unlinkBatch(batchId, transaction) {
   await Employee.update(
     { batchId: null, isMo: null, isTransfer: null, promotedToMo: null },
     { where: { batchId }, transaction },
+  );
+  await Employee.update(
+    { rejoinedBatchId: null, rejoinedIsMo: null },
+    { where: { rejoinedBatchId: batchId }, transaction },
   );
 }
 
@@ -149,6 +183,12 @@ async function unlinkBatch(batchId, transaction) {
 async function listByBatchIds(batchIds, transaction) {
   if (!batchIds.length) return [];
   return Employee.findAll({ where: { batchId: { [Op.in]: batchIds } }, transaction });
+}
+
+/** Employees currently credited as Rejoined against a set of batchIds - backs the Rejoined tile's "view" eye icon. */
+async function listRejoinedByBatchIds(batchIds, transaction) {
+  if (!batchIds.length) return [];
+  return Employee.findAll({ where: { rejoinedBatchId: { [Op.in]: batchIds } }, transaction });
 }
 
 /** Whole months from dateOfJoin to dateOfResign (both "YYYY-MM-DD"), floored, never negative. */
@@ -386,9 +426,11 @@ async function deleteEmployeeRecord(id) {
 module.exports = {
   syncResignedEmployees,
   deleteResignedEmployee,
+  findLinkedEmployee,
   rejoinEmployee,
   unlinkBatch,
   listByBatchIds,
+  listRejoinedByBatchIds,
   getServiceLengthAnalysis,
   getReasonAnalysis,
   listEmployees,

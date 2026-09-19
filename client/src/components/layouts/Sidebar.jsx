@@ -90,6 +90,14 @@ const navLinkClass = ({ isActive }) =>
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const isAdmin = user?.role?.userRole === "Administrator";
+  const isSuperUser = user?.role?.userRole === "SuperUser";
+  // SuperUser gets the same Admin nav section as Administrator (view-only -
+  // each page hides its own add/edit/delete controls for that role), minus
+  // Manage Users, which stays Administrator-only (it lists every account's
+  // email and other sensitive account details).
+  const adminNavItems = isSuperUser
+    ? AD_NAV_ITEMS.filter((item) => item.to !== "/manage-users")
+    : AD_NAV_ITEMS;
 
   return (
     <aside
@@ -121,14 +129,14 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {isAdmin && (
+      {(isAdmin || isSuperUser) && (
         <>
           <div className="text-[10px] uppercase tracking-wider opacity-55 px-3 pb-2 mt-4">
             Admin
           </div>
 
           <nav className="flex flex-col">
-            {AD_NAV_ITEMS.map((item) => (
+            {adminNavItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}

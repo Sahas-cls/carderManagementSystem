@@ -183,6 +183,23 @@ function validateResignedEmployeeParams(req, res, next) {
   next();
 }
 
+/**
+ * Validates the optional rejoinDate on PATCH /daily/:batchId/resigned/:epf/rejoin's
+ * body - only present for a Resigned/Terminated rejoin (the Transfer tile's
+ * Rejoin button doesn't send one); dailyCadreService.rejoinResignedEmployee
+ * enforces that it's actually required in that case, and checks it against
+ * the employee's Date of Resign / today.
+ */
+function validateRejoinBody(req, res, next) {
+  const { rejoinDate } = req.body || {};
+  if (rejoinDate !== undefined && rejoinDate !== null) {
+    if (typeof rejoinDate !== "string" || !DATE_RE.test(rejoinDate)) {
+      return next(new ApiError(400, "rejoinDate must be a valid date in YYYY-MM-DD format."));
+    }
+  }
+  next();
+}
+
 function validateDailyRecordQuery(req, res, next) {
   try {
     const { year, month } = req.query;
@@ -246,6 +263,7 @@ module.exports = {
   validateDailyRecordBody,
   validateBatchIdParam,
   validateResignedEmployeeParams,
+  validateRejoinBody,
   validateDailyRecordQuery,
   validateCadreTrendQuery,
   validatePreviousRecordQuery,

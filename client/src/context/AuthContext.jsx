@@ -1,6 +1,11 @@
 import { createContext, useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getCurrentUser, login as loginRequest, register as registerRequest } from "../services/authServices";
+import {
+  changePassword as changePasswordRequest,
+  getCurrentUser,
+  login as loginRequest,
+  register as registerRequest,
+} from "../services/authServices";
 import { TOKEN_STORAGE_KEY } from "../services/api";
 
 // eslint-disable-next-line react-refresh/only-export-components -- consumed via hooks/useAuth.js
@@ -60,6 +65,25 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener("auth:unauthorized", handleUnauthorized);
   }, [navigate]);
 
+  // An admin reset this account's password mid-session (server rejected a
+  // request with MUST_CHANGE_PASSWORD - our local `user` may still say
+  // mustChangePassword: false since it was read at login/bootstrap). Refetch
+  // it so ProtectedRoute's redirect logic sees the up-to-date flag, then send
+  // them to change it.
+  useEffect(() => {
+    const handleMustChangePassword = async () => {
+      try {
+        const { user: currentUser } = await getCurrentUser();
+        setUser(currentUser);
+      } catch {
+        // Ignore - if /auth/me also fails the next request will surface it.
+      }
+      navigate("/change-password", { replace: true });
+    };
+    window.addEventListener("auth:mustChangePassword", handleMustChangePassword);
+    return () => window.removeEventListener("auth:mustChangePassword", handleMustChangePassword);
+  }, [navigate]);
+
   const login = useCallback(async (credentials) => {
     const { user: loggedInUser, token } = await loginRequest(credentials);
     localStorage.setItem(TOKEN_STORAGE_KEY, token);
@@ -71,12 +95,22 @@ export function AuthProvider({ children }) {
   // until an admin approves it (see server/src/services/authService.js).
   const register = useCallback((details) => registerRequest(details), []);
 
+  // Sets a new password and clears mustChangePassword (forced after an admin
+  // reset - see ChangePasswordPage/ProtectedRoute). Refetches the user so the
+  // cleared flag is reflected locally right away.
+  const changePassword = useCallback(async (credentials) => {
+    await changePasswordRequest(credentials);
+    const { user: currentUser } = await getCurrentUser();
+    setUser(currentUser);
+  }, []);
+
   const value = {
     user,
     initializing,
     isAuthenticated: !!user,
     login,
     register,
+    changePassword,
     logout,
   };
 

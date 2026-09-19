@@ -82,6 +82,7 @@ async function resetPassword(id) {
   const user = await getUserOr404(id);
   const tempPassword = crypto.randomBytes(9).toString("base64url");
   user.password = await hashPassword(tempPassword);
+  user.mustChangePassword = true;
   await user.save();
   return { user, tempPassword };
 }

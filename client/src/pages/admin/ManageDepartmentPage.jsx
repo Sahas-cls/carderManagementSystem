@@ -3,6 +3,7 @@ import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import { CountBadge } from "../../components/ui/Badge";
 import { FieldInput, FieldSelect } from "../../components/ui/FormField";
+import useAuth from "../../hooks/useAuth";
 import Swal from "sweetalert2";
 import { CiEdit } from "react-icons/ci";
 import { MdDeleteForever } from "react-icons/md";
@@ -31,6 +32,9 @@ const visualizeDateTime = (date) => {
 };
 
 const ManageDepartmentPage = () => {
+  const { user } = useAuth();
+  // SuperUser can view every department but never add/edit/delete one.
+  const canEdit = user?.role?.userRole !== "SuperUser";
   const [departments, setDepartments] = useState([]);
   const [factories, setFactories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -215,7 +219,7 @@ const ManageDepartmentPage = () => {
   return (
     <div className="p-4">
       <div className="flex justify-end mb-4">
-        {!showForm && (
+        {!showForm && canEdit && (
           <Button
             variant="primary"
             onClick={() => {
@@ -228,7 +232,7 @@ const ManageDepartmentPage = () => {
         )}
       </div>
 
-      {showForm && (
+      {showForm && canEdit && (
         <Card
           title={editingId ? "Edit Department" : "Add New Department"}
           variant="navy"
@@ -346,7 +350,9 @@ const ManageDepartmentPage = () => {
                     <th className="py-2 pr-3">Factory</th>
                     <th className="py-2 pr-3">Department Name</th>
                     <th className="py-2 pr-3">Created At</th>
-                    <th className="py-2 pr-3 text-center">Actions</th>
+                    {canEdit && (
+                      <th className="py-2 pr-3 text-center">Actions</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -364,24 +370,26 @@ const ManageDepartmentPage = () => {
                       <td className="py-2.5 pr-3 text-gray-500 text-xs">
                         {visualizeDateTime(row.createdAt)}
                       </td>
-                      <td className="py-2.5 pr-3">
-                        <div className="flex gap-2 justify-center">
-                          <button
-                            className="py-1.5 px-2.5 bg-blue-50 rounded-sm border border-blue-200 cursor-pointer hover:bg-blue-100 duration-200"
-                            onClick={() => handleEdit(row)}
-                            title="Edit department"
-                          >
-                            <CiEdit size={18} color="#2563eb" />
-                          </button>
-                          <button
-                            className="py-1.5 px-2.5 bg-red-50 rounded-sm border border-red-200 cursor-pointer hover:bg-red-100 duration-200"
-                            onClick={() => handleDelete(row)}
-                            title="Delete department"
-                          >
-                            <MdDeleteForever size={18} color="#dc2626" />
-                          </button>
-                        </div>
-                      </td>
+                      {canEdit && (
+                        <td className="py-2.5 pr-3">
+                          <div className="flex gap-2 justify-center">
+                            <button
+                              className="py-1.5 px-2.5 bg-blue-50 rounded-sm border border-blue-200 cursor-pointer hover:bg-blue-100 duration-200"
+                              onClick={() => handleEdit(row)}
+                              title="Edit department"
+                            >
+                              <CiEdit size={18} color="#2563eb" />
+                            </button>
+                            <button
+                              className="py-1.5 px-2.5 bg-red-50 rounded-sm border border-red-200 cursor-pointer hover:bg-red-100 duration-200"
+                              onClick={() => handleDelete(row)}
+                              title="Delete department"
+                            >
+                              <MdDeleteForever size={18} color="#dc2626" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

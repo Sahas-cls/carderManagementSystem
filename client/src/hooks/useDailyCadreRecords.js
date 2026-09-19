@@ -69,8 +69,9 @@ export default function useDailyCadreRecords(factoryId, period) {
 
   const addRecord = useCallback(
     async (payload) => {
-      await createDailyRecord(payload);
+      const saved = await createDailyRecord(payload);
       refetch();
+      return saved;
     },
     [refetch]
   );

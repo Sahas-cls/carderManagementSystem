@@ -26,7 +26,10 @@ module.exports = {
   },
 
   async down(queryInterface) {
-    await queryInterface.removeIndex("factories", "factories_factory_code_unique");
+    await queryInterface.removeIndex(
+      "factories",
+      "factories_factory_code_unique",
+    );
     // Not un-mangling the old soft-deleted rows' codes - that rewrite was
     // one-way by design (see up()); their original codes aren't relied on
     // anywhere the app still reads paranoid-deleted rows.

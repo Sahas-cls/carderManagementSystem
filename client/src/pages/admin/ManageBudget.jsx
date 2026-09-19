@@ -40,7 +40,7 @@ const visualizeDateTime = (date) => {
 };
 
 /** Budget Master - configures Planned MO/TMO per factory (mirrored by Daily Data Entry's Planned MO/TMO). */
-const BudgetSection = ({ factories, userFactoryId }) => {
+const BudgetSection = ({ factories, userFactoryId, canEdit }) => {
   // Which factory's budget history is shown below - defaults to the admin's own factory if they have one.
   const [filterFactoryId, setFilterFactoryId] = useState(userFactoryId);
 
@@ -259,7 +259,7 @@ const BudgetSection = ({ factories, userFactoryId }) => {
   return (
     <div>
       {/* Add Budget Button - visible when form is hidden */}
-      {!showForm && (
+      {!showForm && canEdit && (
         <div className="mb-4">
           <Button
             variant="primary"
@@ -274,7 +274,7 @@ const BudgetSection = ({ factories, userFactoryId }) => {
       )}
 
       {/* Budget Form - visible when showForm is true */}
-      {showForm && (
+      {showForm && canEdit && (
         <div>
           <Card
             title={editingId ? "Edit Budget" : "Add New Budget"}
@@ -402,7 +402,9 @@ const BudgetSection = ({ factories, userFactoryId }) => {
                   <th className="py-2 pr-3 pt-6">Created At</th>
                   <th className="py-2 pr-3 pt-6">Created By</th>
                   <th className="py-2 pr-3 pt-6 text-center">Active</th>
-                  <th className="py-2 pr-3 pt-6 text-center">Actions</th>
+                  {canEdit && (
+                    <th className="py-2 pr-3 pt-6 text-center">Actions</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -436,30 +438,32 @@ const BudgetSection = ({ factories, userFactoryId }) => {
                       <input
                         type="checkbox"
                         checked={bdg.status}
-                        disabled={statusUpdatingId === bdg.id}
+                        disabled={!canEdit || statusUpdatingId === bdg.id}
                         onChange={() => handleToggleStatus(bdg)}
                       />
                     </td>
-                    <td className="py-2.5 pr-3">
-                      <div className="flex gap-2 justify-center">
-                        <button
-                          className="py-1.5 px-2.5 bg-blue-50 rounded-sm border border-blue-200 cursor-pointer hover:bg-blue-100 duration-200"
-                          onClick={() => handleEdit(bdg)}
-                          title="Edit budget"
-                          type="button"
-                        >
-                          <CiEdit size={18} color="#2563eb" />
-                        </button>
-                        <button
-                          className="py-1.5 px-2.5 bg-red-50 rounded-sm border border-red-200 cursor-pointer hover:bg-red-100 duration-200"
-                          onClick={() => handleDelete(bdg)}
-                          title="Delete budget"
-                          type="button"
-                        >
-                          <MdDeleteForever size={18} color="#dc2626" />
-                        </button>
-                      </div>
-                    </td>
+                    {canEdit && (
+                      <td className="py-2.5 pr-3">
+                        <div className="flex gap-2 justify-center">
+                          <button
+                            className="py-1.5 px-2.5 bg-blue-50 rounded-sm border border-blue-200 cursor-pointer hover:bg-blue-100 duration-200"
+                            onClick={() => handleEdit(bdg)}
+                            title="Edit budget"
+                            type="button"
+                          >
+                            <CiEdit size={18} color="#2563eb" />
+                          </button>
+                          <button
+                            className="py-1.5 px-2.5 bg-red-50 rounded-sm border border-red-200 cursor-pointer hover:bg-red-100 duration-200"
+                            onClick={() => handleDelete(bdg)}
+                            title="Delete budget"
+                            type="button"
+                          >
+                            <MdDeleteForever size={18} color="#dc2626" />
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -472,7 +476,7 @@ const BudgetSection = ({ factories, userFactoryId }) => {
 };
 
 /** Training Center Budget Master - configures Planned per factory (mirrored by Daily Data Entry's TMO_Training Center "Planned" field). */
-const TcBudgetSection = ({ factories, userFactoryId }) => {
+const TcBudgetSection = ({ factories, userFactoryId, canEdit }) => {
   const [filterFactoryId, setFilterFactoryId] = useState(userFactoryId);
 
   const [tcBudgets, setTcBudgets] = useState([]);
@@ -672,7 +676,7 @@ const TcBudgetSection = ({ factories, userFactoryId }) => {
 
   return (
     <div>
-      {!showForm && (
+      {!showForm && canEdit && (
         <div className="mb-4">
           <Button
             variant="primary"
@@ -686,7 +690,7 @@ const TcBudgetSection = ({ factories, userFactoryId }) => {
         </div>
       )}
 
-      {showForm && (
+      {showForm && canEdit && (
         <div>
           <Card
             title={editingId ? "Edit Training Center Budget" : "Add New Training Center Budget"}
@@ -795,7 +799,9 @@ const TcBudgetSection = ({ factories, userFactoryId }) => {
                   <th className="py-2 pr-3 pt-6">Created At</th>
                   <th className="py-2 pr-3 pt-6">Created By</th>
                   <th className="py-2 pr-3 pt-6 text-center">Active</th>
-                  <th className="py-2 pr-3 pt-6 text-center">Actions</th>
+                  {canEdit && (
+                    <th className="py-2 pr-3 pt-6 text-center">Actions</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -823,30 +829,32 @@ const TcBudgetSection = ({ factories, userFactoryId }) => {
                       <input
                         type="checkbox"
                         checked={bdg.status}
-                        disabled={statusUpdatingId === bdg.id}
+                        disabled={!canEdit || statusUpdatingId === bdg.id}
                         onChange={() => handleToggleStatus(bdg)}
                       />
                     </td>
-                    <td className="py-2.5 pr-3">
-                      <div className="flex gap-2 justify-center">
-                        <button
-                          className="py-1.5 px-2.5 bg-blue-50 rounded-sm border border-blue-200 cursor-pointer hover:bg-blue-100 duration-200"
-                          onClick={() => handleEdit(bdg)}
-                          title="Edit training center budget"
-                          type="button"
-                        >
-                          <CiEdit size={18} color="#2563eb" />
-                        </button>
-                        <button
-                          className="py-1.5 px-2.5 bg-red-50 rounded-sm border border-red-200 cursor-pointer hover:bg-red-100 duration-200"
-                          onClick={() => handleDelete(bdg)}
-                          title="Delete training center budget"
-                          type="button"
-                        >
-                          <MdDeleteForever size={18} color="#dc2626" />
-                        </button>
-                      </div>
-                    </td>
+                    {canEdit && (
+                      <td className="py-2.5 pr-3">
+                        <div className="flex gap-2 justify-center">
+                          <button
+                            className="py-1.5 px-2.5 bg-blue-50 rounded-sm border border-blue-200 cursor-pointer hover:bg-blue-100 duration-200"
+                            onClick={() => handleEdit(bdg)}
+                            title="Edit training center budget"
+                            type="button"
+                          >
+                            <CiEdit size={18} color="#2563eb" />
+                          </button>
+                          <button
+                            className="py-1.5 px-2.5 bg-red-50 rounded-sm border border-red-200 cursor-pointer hover:bg-red-100 duration-200"
+                            onClick={() => handleDelete(bdg)}
+                            title="Delete training center budget"
+                            type="button"
+                          >
+                            <MdDeleteForever size={18} color="#dc2626" />
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -866,6 +874,8 @@ const TABS = [
 const ManageBudget = () => {
   const { user } = useAuth();
   const userFactoryId = user?.factory?.id ? String(user.factory.id) : "";
+  // SuperUser can view every budget but never add/edit/delete/activate one.
+  const canEdit = user?.role?.userRole !== "SuperUser";
 
   // Factory list (reused across admin pages).
   const { factories } = useDailyCadreRecords();
@@ -895,9 +905,17 @@ const ManageBudget = () => {
       </div>
 
       {activeTab === "budget" ? (
-        <BudgetSection factories={factories} userFactoryId={userFactoryId} />
+        <BudgetSection
+          factories={factories}
+          userFactoryId={userFactoryId}
+          canEdit={canEdit}
+        />
       ) : (
-        <TcBudgetSection factories={factories} userFactoryId={userFactoryId} />
+        <TcBudgetSection
+          factories={factories}
+          userFactoryId={userFactoryId}
+          canEdit={canEdit}
+        />
       )}
     </div>
   );

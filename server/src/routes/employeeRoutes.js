@@ -22,10 +22,17 @@ const router = Router();
 router.get("/service-length-analysis", validateYearFactoryQuery, getServiceLengthAnalysis);
 router.get("/reason-analysis", validateYearFactoryQuery, getReasonAnalysis);
 
-// Manage Employees (Employee Master) - viewing and editing employee details is admin-only.
+// Manage Employees (Employee Master) - viewing is Administrator/SuperUser, editing is admin-only.
+router.get(
+  "/",
+  requireAuth,
+  requireRole("Administrator", "SuperUser"),
+  validateEmployeeListQuery,
+  getEmployees,
+);
+
 router.use(requireAuth, requireRole("Administrator"));
 
-router.get("/", validateEmployeeListQuery, getEmployees);
 router.post("/", validateEmployeeBody, createEmployee);
 router.put("/:id", validateIdParam, validateEmployeeBody, updateEmployee);
 router.delete("/:id", validateIdParam, deleteEmployee);

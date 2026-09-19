@@ -14,3 +14,8 @@ export function login({ email, password }) {
 export function getCurrentUser() {
   return api.get("/auth/me");
 }
+
+/** Changes the current user's password. Also clears a mustChangePassword flag left by an admin reset. */
+export function changePassword({ currentPassword, newPassword }) {
+  return api.post("/auth/change-password", { currentPassword, newPassword });
+}
