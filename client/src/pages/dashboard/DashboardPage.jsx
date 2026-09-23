@@ -7,7 +7,6 @@ import useCadreTrend from "../../hooks/useCadreTrend";
 import useServiceLengthAnalysis from "../../hooks/useServiceLengthAnalysis";
 import useReasonAnalysis from "../../hooks/useReasonAnalysis";
 import TrendAreaChart from "../../components/charts/TrendAreaChart";
-import BarChart from "../../components/charts/BarChart";
 import DonutChart from "../../components/charts/DonutChart";
 import {
   CATEGORICAL_COLORS,
@@ -191,12 +190,19 @@ export default function DashboardPage() {
     };
   }, [trendMonths, ltoData, absenteeismData]);
 
-  // Most recent daily record per factory (records arrive newest-entered
-  // first, so the first hit per factoryId is its latest snapshot) - a
-  // "right now" complement to the year-trend charts above, not year-scoped.
+  // Most recent daily record per factory, by its Date field (not entry
+  // order) - a factory can have several batches on the same date, in which
+  // case the most recently entered one (createdAt) breaks the tie. This is
+  // the "right now" snapshot behind Current Headcount and Cadre Fulfilment's
+  // Allocated below, not year-scoped.
   const latestByFactory = useMemo(() => {
+    const sorted = [...records].sort((a, b) => {
+      const dateCmp = (b.date || "").localeCompare(a.date || "");
+      if (dateCmp !== 0) return dateCmp;
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
     const map = new Map();
-    records.forEach((r) => {
+    sorted.forEach((r) => {
       if (r.factoryId == null || map.has(r.factoryId)) return;
       map.set(r.factoryId, r);
     });
@@ -226,15 +232,17 @@ export default function DashboardPage() {
 
   // Group-wide (or scoped) Budget vs Allocated, from each factory's latest
   // record this month - mirrors the "Cadre Fulfilment" sheet (BUDGET /
-  // ALLOCATED / CADRE FULFILMENT_%). The donut's two segments (Allocated +
-  // Shortage) sum to Budget, so the Allocated slice's own share *is* the
-  // Cadre Fulfilment %.
+  // ALLOCATED / CADRE FULFILMENT_%). Allocated is that latest record's
+  // Allocated_Current MO+TMO (same figure as Current Headcount above), not
+  // Allocated_Actual - it's the headcount actually on the floor right now.
+  // The donut's two segments (Allocated + Shortage) sum to Budget, so the
+  // Allocated slice's own share *is* the Cadre Fulfilment %.
   const fulfilmentTotals = useMemo(
     () =>
       scopedLatestByFactory.reduce(
         (acc, r) => {
           acc.budget += Number(r.pt) || 0;
-          acc.allocated += Number(r.at) || 0;
+          acc.allocated += (Number(r.cmo) || 0) + (Number(r.ctmo) || 0);
           return acc;
         },
         { budget: 0, allocated: 0 },
@@ -260,41 +268,6 @@ export default function DashboardPage() {
         (fulfilmentTotals.allocated / fulfilmentTotals.budget) * 1000,
       ) / 10
     : 0;
-
-  const compositionData = useMemo(() => {
-    const totals = scopedLatestByFactory.reduce(
-      (acc, r) => {
-        acc.mo += Number(r.cmo) || 0;
-        acc.tmo += Number(r.ctmo) || 0;
-        return acc;
-      },
-      { mo: 0, tmo: 0 },
-    );
-    return [
-      { label: "Current MO", value: totals.mo, color: CHART_COLORS.blue },
-      { label: "Current TMO", value: totals.tmo, color: CHART_COLORS.aqua },
-    ];
-  }, [scopedLatestByFactory]);
-
-  // Administrator-only cross-factory comparison - always every factory
-  // (this is the dedicated "compare factories" view; the Factory filter
-  // above narrows everything else, not this).
-  const attendanceByFactory = useMemo(
-    () =>
-      latestByFactory.map((r) => ({
-        label: r.factory,
-        values: { present: Number(r.prt) || 0, absent: Number(r.abt) || 0 },
-      })),
-    [latestByFactory],
-  );
-  const shortageByFactory = useMemo(
-    () =>
-      latestByFactory.map((r) => ({
-        label: r.factory,
-        values: { shortage: Math.max(0, Number(r.st) || 0) },
-      })),
-    [latestByFactory],
-  );
 
   const scopeAndYear = `${scopeLabel} • ${selectedYear}`;
 

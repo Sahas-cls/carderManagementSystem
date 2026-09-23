@@ -42,10 +42,21 @@ export default function DailyEntryPage() {
   const { user } = useAuth();
   // SuperUser can view every Daily Data Entry record but never add/edit/delete one.
   const canEdit = user?.role?.userRole !== "SuperUser";
+  // Only Administrator and SuperUser get the "Daily Data Records" factory
+  // filter - every other role stays scoped to their own assigned factory
+  // (see recordsFactoryId below).
+  const canFilterFactory =
+    user?.role?.userRole === "Administrator" ||
+    user?.role?.userRole === "SuperUser";
   // The logged-in user's assigned factory (Manage Users, admin-set) pre-fills
   // the form and scopes the records table below - users with no factory
   // assigned fall back to the old "pick one" behaviour, unfiltered.
   const userFactoryId = user?.factory?.id ? String(user.factory.id) : "";
+  // Which factory the "Daily Data Records" table below shows - defaults to
+  // the user's own factory (unchanged behaviour for everyone), but an
+  // Administrator/SuperUser can switch it to another factory via the
+  // table's factory filter.
+  const [recordsFactoryId, setRecordsFactoryId] = useState(userFactoryId);
   const emptyForm = useMemo(
     () => ({
       ...EMPTY_CADRE_FORM,
@@ -76,7 +87,7 @@ export default function DailyEntryPage() {
     updateRecord,
     deleteRecord,
     refetch,
-  } = useDailyCadreRecords(userFactoryId, period);
+  } = useDailyCadreRecords(canFilterFactory ? recordsFactoryId : userFactoryId, period);
   const [form, setForm] = useState(emptyForm);
   const [editingRecord, setEditingRecord] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -353,6 +364,11 @@ export default function DailyEntryPage() {
           onDelete={canEdit ? handleDelete : undefined}
           month={recordsMonth}
           onMonthChange={setRecordsMonth}
+          factories={factories}
+          factoryFilter={recordsFactoryId}
+          onFactoryFilterChange={
+            canFilterFactory ? setRecordsFactoryId : undefined
+          }
         />
       )}
     </div>

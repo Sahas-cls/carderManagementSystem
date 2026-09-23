@@ -879,12 +879,16 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
  * dashboard charts, which the HR Performance Analysis report keeps as
  * separate sheets but which all read the same daily records over the same
  * year, so one query does all four:
- *  - budget/allocated mirror "Cadre Trend" (AVERAGE CADRE STATUS TREND_MO
- *    & TMO): Budget is resolved the same way Daily Data Entry does
- *    (whichever Budget was active for the factory on each day, via
- *    PlannedCarder's budget join); Allocated is the Allocated Actual total
- *    entered that day. Both are *averaged* across every daily entry within
- *    the month, matching the sheet's "AVERAGE".
+ *  - budget mirrors "Cadre Trend" (AVERAGE CADRE STATUS TREND_MO & TMO):
+ *    resolved the same way Daily Data Entry does (whichever Budget was
+ *    active for the factory on each day, via PlannedCarder's budget join),
+ *    *averaged* across every daily entry within the month, matching the
+ *    sheet's "AVERAGE". Allocated is instead a snapshot, not an average: the
+ *    Allocated_Current MO+TMO (AllocatedCurrentCarder.total) from whichever
+ *    entry has the latest Date that month for that factory (same figure the
+ *    dashboard's Current Headcount / Cadre Fulfilment use), so the trend
+ *    line reads as "headcount on the floor at month's end", not a monthly
+ *    average.
  *  - recruitment/resigned mirror "FACTORY WISE RECRUITMENT & RESIGN TREND":
  *    each daily entry's New Recruit total (Cadre side) plus that day's
  *    Training Center Recruit. count, and Resigned/Terminated total (Cadre
@@ -913,7 +917,7 @@ async function getCadreTrend({ year, factoryId } = {}) {
     // Budgets are soft-deleted (paranoid) - see listDailyRecords for why
     // this include bypasses that default.
     PlannedCarder.findAll({ where, include: [{ model: Budget, as: "budget", paranoid: false }] }),
-    AllocatedActualCarder.findAll({ where }),
+    AllocatedCurrentCarder.findAll({ where }),
     NewRecruitCarder.findAll({ where }),
     TrainingCenter.findAll({ where, attributes: ["factoryId", "date", "recruit"] }),
     ResignedCarder.findAll({ where }),
@@ -932,8 +936,7 @@ async function getCadreTrend({ year, factoryId } = {}) {
       byMonth.set(month, {
         budgetSum: 0,
         budgetCount: 0,
-        allocSum: 0,
-        allocCount: 0,
+        allocLatest: null,
         recruitment: 0,
         resigned: 0,
         absentSum: 0,
@@ -951,8 +954,16 @@ async function getCadreTrend({ year, factoryId } = {}) {
   });
   allocatedRows.forEach((row) => {
     const b = bucket(row.factoryId, monthKey(row.date));
-    b.allocSum += row.total;
-    b.allocCount += 1;
+    // Snapshot, not a sum/average - keep only the row for this factory's
+    // latest Date within the month (createdAt breaks a same-day tie).
+    if (
+      !b.allocLatest ||
+      row.date > b.allocLatest.date ||
+      (row.date === b.allocLatest.date &&
+        new Date(row.createdAt) > new Date(b.allocLatest.createdAt))
+    ) {
+      b.allocLatest = { date: row.date, createdAt: row.createdAt, total: row.total };
+    }
   });
   newRecRows.forEach((row) => {
     bucket(row.factoryId, monthKey(row.date)).recruitment += row.total;
@@ -978,7 +989,7 @@ async function getCadreTrend({ year, factoryId } = {}) {
       return {
         month: m,
         budget: b && b.budgetCount ? Math.round(b.budgetSum / b.budgetCount) : 0,
-        allocated: b && b.allocCount ? Math.round(b.allocSum / b.allocCount) : 0,
+        allocated: b?.allocLatest?.total ?? 0,
         recruitment: b?.recruitment ?? 0,
         resigned: b?.resigned ?? 0,
         absent: b && b.absentCount ? Math.round(b.absentSum / b.absentCount) : 0,

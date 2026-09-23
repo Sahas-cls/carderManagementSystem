@@ -2,7 +2,7 @@
   "development": {
     "username": "root",
     "password": null,
-    "database": "carder_management_sys",
+    "database": "cadre_management_sys3",
     "host": "127.0.0.1",
     "dialect": "mysql"
   },
