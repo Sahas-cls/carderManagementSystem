@@ -15,6 +15,13 @@ function validateYearFactoryQuery(req, res, next) {
       if (!Number.isInteger(y) || y < 2000) throw new ApiError(400, "year must be a valid year.");
       parsed.year = y;
     }
+    // Optional - narrows the LTO breakdowns to one calendar month of `year`
+    // (the dashboard's Month filter); ignored by the year-only analyses.
+    if (req.query.month !== undefined) {
+      const m = Number(req.query.month);
+      if (!Number.isInteger(m) || m < 1 || m > 12) throw new ApiError(400, "month must be 1-12.");
+      parsed.month = m;
+    }
     req.filters = parsed;
     next();
   } catch (err) {
@@ -32,18 +39,33 @@ function validateIdParam(req, res, next) {
   next();
 }
 
-/** Validates the Employee Master list query: ?search= (partial EPF match) and an optional ?limit= for the "recently added" view. */
+const MAX_PAGE_SIZE = 100;
+
+/**
+ * Validates the Employee Master list query: ?search= (partial EPF match),
+ * ?factoryId= (Administrator/SuperUser's factory filter - the User role is
+ * always pinned to its own factory instead, see employeeController),
+ * ?page= (1-based) and ?pageSize= (capped at MAX_PAGE_SIZE).
+ */
 function validateEmployeeListQuery(req, res, next) {
   try {
     const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+    const pageSize = parseOptionalId(req.query.pageSize, "pageSize");
     req.filters = {
       search,
-      limit: parseOptionalId(req.query.limit, "limit"),
+      factoryId: parseOptionalId(req.query.factoryId, "factoryId") || undefined,
+      page: parseOptionalId(req.query.page, "page") || 1,
+      pageSize: pageSize ? Math.min(pageSize, MAX_PAGE_SIZE) : undefined,
     };
     next();
   } catch (err) {
     next(err);
   }
+}
+
+/** Trimmed string, or null when missing/blank - for the optional free-text fields below. */
+function optionalString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 /**
@@ -77,7 +99,31 @@ function validateEmployeeBody(req, res, next) {
       throw new ApiError(400, "Date of Resign cannot be before Date of Join.");
     }
 
-    req.body = { epf, employeeName, designationId, departmentId, sectionId, dateOfJoin, dateOfResign, resignationReasonId };
+    // Optional - Civil Status / Gender are plain strings (no ENUM), the
+    // page's dropdowns decide the values.
+    const dateOfBirth = optionalString(source.dateOfBirth);
+    const civilStatus = optionalString(source.civilStatus);
+    const gender = optionalString(source.gender);
+    if (dateOfBirth && !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
+      throw new ApiError(400, "Date of Birth must be a valid date in YYYY-MM-DD format.");
+    }
+    if (dateOfBirth && dateOfBirth >= dateOfJoin) {
+      throw new ApiError(400, "Date of Birth must be before Date of Join.");
+    }
+
+    req.body = {
+      epf,
+      employeeName,
+      designationId,
+      departmentId,
+      sectionId,
+      dateOfJoin,
+      dateOfResign,
+      resignationReasonId,
+      dateOfBirth,
+      civilStatus,
+      gender,
+    };
     next();
   } catch (err) {
     next(err);

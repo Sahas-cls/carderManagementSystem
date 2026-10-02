@@ -1,6 +1,16 @@
 "use strict";
 
-const { Week, Factory, AllocatedActualCarder, AbsenteeismCarder, PresentCarder, TrainingCenter } = require("../../models");
+const { Op } = require("sequelize");
+const {
+  Week,
+  Factory,
+  AllocatedActualCarder,
+  AbsenteeismCarder,
+  PresentCarder,
+  TrainingCenter,
+  PlannedCarder,
+  Budget,
+} = require("../../models");
 const { formatWeekLabel } = require("../utils/weekLabel");
 
 function keyFor(weekId, factoryId) {
@@ -96,4 +106,82 @@ async function getWeeklyCadreView({ factoryId, weekId } = {}) {
   });
 }
 
-module.exports = { getWeeklyCadreView };
+/**
+ * Backs Weekly Data View's "Download Excel 2" (the "Weekly Cadre Status
+ * Report" workbook): for every factory and week with Daily Data Entry
+ * records dated within [from, to], that week's FIRST daily entry - a
+ * point-in-time headcount, unlike getWeeklyCadreView above, which sums
+ * every entry in the week. Budget is the Budget Master MO/TMO that entry
+ * was planned against (its PlannedCarder row), same as Daily Data Entry's
+ * Planned columns. Several entries on that same first date are
+ * tie-broken by the most recently entered one (createdAt), same as the
+ * Dashboard. Present figures aren't returned - the workbook derives them
+ * (Allocated - Absent) as Excel formulas, matching the source report.
+ * Sorted by factory id, then date.
+ */
+async function getWeeklyStatusReport({ from, to, factoryId } = {}) {
+  const where = { date: { [Op.between]: [from, to] } };
+  if (factoryId) where.factoryId = factoryId;
+
+  const allocated = await AllocatedActualCarder.findAll({ where });
+  // Pick each (factory, week)'s first entry - earliest date, then latest createdAt.
+  const firstByWeek = new Map();
+  allocated.forEach((r) => {
+    const key = keyFor(r.weekId, r.factoryId);
+    const current = firstByWeek.get(key);
+    if (
+      !current ||
+      r.date < current.date ||
+      (r.date === current.date && new Date(r.createdAt) > new Date(current.createdAt))
+    ) {
+      firstByWeek.set(key, r);
+    }
+  });
+
+  const picked = [...firstByWeek.values()];
+  const batchIds = picked.map((r) => r.batchId);
+  const [factories, planned, absenteeism, trainingCenters] = await Promise.all([
+    Factory.findAll({ attributes: ["id", "factoryName"] }),
+    // Budgets are soft-deleted (paranoid) - an entry planned against a
+    // since-deleted budget still reports the MO/TMO it pointed to.
+    batchIds.length
+      ? PlannedCarder.findAll({
+          where: { batchId: { [Op.in]: batchIds } },
+          include: [{ model: Budget, as: "budget", paranoid: false }],
+        })
+      : [],
+    batchIds.length ? AbsenteeismCarder.findAll({ where: { batchId: { [Op.in]: batchIds } } }) : [],
+    batchIds.length ? TrainingCenter.findAll({ where: { batchId: { [Op.in]: batchIds } } }) : [],
+  ]);
+  const factoryMap = new Map(factories.map((f) => [f.id, f.factoryName]));
+  const budgetByBatch = new Map(planned.map((r) => [r.batchId, r.budget]));
+  const absentByBatch = new Map(absenteeism.map((r) => [r.batchId, r]));
+  const tcByBatch = new Map(trainingCenters.map((r) => [r.batchId, r]));
+
+  return picked
+    // Entries left behind by a since-deleted factory (Factory is paranoid,
+    // so it's missing from factoryMap) don't get a block of their own.
+    .filter((r) => factoryMap.has(r.factoryId))
+    .map((r) => {
+      const budget = budgetByBatch.get(r.batchId);
+      const absent = absentByBatch.get(r.batchId);
+      const tc = tcByBatch.get(r.batchId);
+      return {
+        factoryId: r.factoryId,
+        factory: factoryMap.get(r.factoryId),
+        weekId: r.weekId,
+        date: r.date,
+        budgetMO: budget?.moCount ?? 0,
+        budgetTMO: budget?.tmoCount ?? 0,
+        allocatedMO: r.MO ?? 0,
+        allocatedTMO: r.TMO ?? 0,
+        absentMO: absent?.MO ?? 0,
+        absentTMO: absent?.TMO ?? 0,
+        tcAllocated: tc?.allocated ?? 0,
+        tcAbsent: tc?.absent ?? 0,
+      };
+    })
+    .sort((a, b) => a.factoryId - b.factoryId || a.date.localeCompare(b.date));
+}
+
+module.exports = { getWeeklyCadreView, getWeeklyStatusReport };

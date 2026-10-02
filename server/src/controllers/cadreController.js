@@ -9,4 +9,10 @@ const getWeeklyView = asyncHandler(async (req, res) => {
   res.json({ success: true, data: rows });
 });
 
-module.exports = { getWeeklyView };
+// GET /api/cadre/weekly-report?from=&to=&factoryId= (Weekly Data View's "Download Excel 2")
+const getWeeklyReport = asyncHandler(async (req, res) => {
+  const rows = await cadreService.getWeeklyStatusReport(req.filters);
+  res.json({ success: true, data: rows });
+});
+
+module.exports = { getWeeklyView, getWeeklyReport };

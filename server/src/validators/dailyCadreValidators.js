@@ -76,6 +76,22 @@ function validateExitEmployees(rows, mo, tmo, label, isTransfer = false) {
       throw new ApiError(400, `${label} #${i + 1}: Date of Resign cannot be before Date of Joining.`);
     }
 
+    // Optional, Resigned/Terminated rows only (not collected for Transfer).
+    if (!isTransfer) {
+      const dob = typeof row?.dateOfBirth === "string" ? row.dateOfBirth.trim() : "";
+      if (dob) {
+        if (!DATE_RE.test(dob)) {
+          throw new ApiError(400, `${label} #${i + 1}: Date of Birth must be in YYYY-MM-DD format.`);
+        }
+        if (dob >= parsed.dateOfJoin) {
+          throw new ApiError(400, `${label} #${i + 1}: Date of Birth must be before Date of Joining.`);
+        }
+      }
+      parsed.dateOfBirth = dob || null;
+      const civilStatus = typeof row?.civilStatus === "string" ? row.civilStatus.trim() : "";
+      parsed.civilStatus = civilStatus || null;
+    }
+
     parsed.epf = String(parsed.epf).trim();
     parsed.employeeName = String(parsed.employeeName).trim();
     parsed.isMo = i < mo;

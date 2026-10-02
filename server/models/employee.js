@@ -122,6 +122,23 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DATEONLY,
         allowNull: false,
       },
+      // Collected on the Resigned/Terminated popup (optional) - null for
+      // employees entered before these fields existed.
+      dateOfBirth: {
+        type: DataTypes.DATEONLY,
+        allowNull: true,
+      },
+      // "Married" / "Unmarried" - a plain string, deliberately not an ENUM.
+      civilStatus: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      // "Male" / "Female" - a plain string, deliberately not an ENUM. Filled
+      // in on the Manage Employees page; null until someone does.
+      gender: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
       // Null while the employee is still active. Service period is derived
       // from dateOfJoin & (dateOfResign || today) in the controller, not
       // stored here.

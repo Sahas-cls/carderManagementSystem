@@ -6,6 +6,9 @@ import useDailyCadreRecords from "../../hooks/useDailyCadreRecords";
 import useCadreTrend from "../../hooks/useCadreTrend";
 import useServiceLengthAnalysis from "../../hooks/useServiceLengthAnalysis";
 import useReasonAnalysis from "../../hooks/useReasonAnalysis";
+import useCivilStatusAnalysis from "../../hooks/useCivilStatusAnalysis";
+import useSectionAnalysis from "../../hooks/useSectionAnalysis";
+import useAgeAnalysis from "../../hooks/useAgeAnalysis";
 import TrendAreaChart from "../../components/charts/TrendAreaChart";
 import DonutChart from "../../components/charts/DonutChart";
 import {
@@ -18,6 +21,62 @@ import {
 const CURRENT_YEAR = new Date().getFullYear();
 // At least the past 5 years, per the Administrator's "historical insight" requirement.
 const YEAR_OPTIONS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
+// Month filter for the month-snapshot cards (Cadre Fulfilment + the LTO
+// breakdown donuts) - this month plus the 11 before it (a rolling 12 months),
+// newest first, crossing into last year when needed. Independent of the Year
+// selector above, which keeps driving the year-long trend charts.
+const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - i);
+  return {
+    key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+    year: d.getFullYear(),
+    month: d.getMonth() + 1,
+    label: d.toLocaleString("en-US", { month: "short", year: "numeric" }),
+  };
+});
+
+/**
+ * Most recent daily record per factory, by its Date field (not entry order) -
+ * a factory can have several batches on the same date, in which case the
+ * most recently entered one (createdAt) breaks the tie. Narrowed to
+ * `factoryId` when given - otherwise ("All Factories") every factory's row is
+ * kept, summing across the group.
+ */
+function latestPerFactory(records, factoryId) {
+  const sorted = [...records].sort((a, b) => {
+    const dateCmp = (b.date || "").localeCompare(a.date || "");
+    if (dateCmp !== 0) return dateCmp;
+    return new Date(b.createdAt) - new Date(a.createdAt);
+  });
+  const map = new Map();
+  sorted.forEach((r) => {
+    if (r.factoryId == null || map.has(r.factoryId)) return;
+    map.set(r.factoryId, r);
+  });
+  const rows = [...map.values()];
+  return factoryId
+    ? rows.filter((r) => String(r.factoryId) === String(factoryId))
+    : rows;
+}
+
+/**
+ * Budget vs Allocated summed over latestPerFactory's rows - mirrors the
+ * "Cadre Fulfilment" sheet (BUDGET / ALLOCATED / CADRE FULFILMENT_%).
+ * Allocated is each latest record's Allocated_Current MO+TMO (the headcount
+ * actually on the floor), not Allocated_Actual.
+ */
+function fulfilmentTotalsOf(rows) {
+  return rows.reduce(
+    (acc, r) => {
+      acc.budget += Number(r.pt) || 0;
+      acc.allocated += (Number(r.cmo) || 0) + (Number(r.ctmo) || 0);
+      return acc;
+    },
+    { budget: 0, allocated: 0 },
+  );
+}
 
 /** Small uppercase section label + scope/year context, sitting above a group of cards. */
 function SectionHeading({ title, context }) {
@@ -54,6 +113,13 @@ export default function DashboardPage() {
   // user is never shown that option).
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [selectedFactoryId, setSelectedFactoryId] = useState(null);
+  // One of MONTH_OPTIONS, by key - defaults to the current month.
+  const [selectedMonthKey, setSelectedMonthKey] = useState(MONTH_OPTIONS[0].key);
+  const selectedPeriod =
+    MONTH_OPTIONS.find((m) => m.key === selectedMonthKey) || MONTH_OPTIONS[0];
+  // The selected month's daily records, for the Cadre Fulfilment donut
+  // (`records` above stays the current month, for the KPI tiles).
+  const { records: monthRecords } = useDailyCadreRecords(undefined, selectedPeriod);
   const effectiveFactoryId = isAdmin ? selectedFactoryId : userFactoryId;
   // Whether the factory-scoped cards (Fulfilment, Composition, Attrition
   // Analysis) have something meaningful to show - an Administrator always
@@ -99,7 +165,8 @@ export default function DashboardPage() {
   // category on its own.
   const { analysis: reasonAnalysis } = useReasonAnalysis({
     factoryId: effectiveFactoryId,
-    year: selectedYear,
+    year: selectedPeriod.year,
+    month: selectedPeriod.month,
   });
   const reasonData = useMemo(
     () =>
@@ -112,6 +179,68 @@ export default function DashboardPage() {
             : CATEGORICAL_COLORS[i % CATEGORICAL_COLORS.length],
       })),
     [reasonAnalysis],
+  );
+
+  // Same year/scope, grouped by civil status (collected on the Resigned/
+  // Terminated popup). "Not Recorded" (older rows entered before the field
+  // existed, or left blank) gets the neutral OTHER_COLOR, like "Other" above.
+  const { analysis: civilStatusAnalysis } = useCivilStatusAnalysis({
+    factoryId: effectiveFactoryId,
+    year: selectedPeriod.year,
+    month: selectedPeriod.month,
+  });
+  const civilStatusData = useMemo(
+    () =>
+      (civilStatusAnalysis?.statuses || []).map((s, i) => ({
+        label: s.label,
+        value: s.count,
+        color:
+          s.label === "Not Recorded"
+            ? OTHER_COLOR
+            : CATEGORICAL_COLORS[i % CATEGORICAL_COLORS.length],
+      })),
+    [civilStatusAnalysis],
+  );
+
+  // Same year/scope, grouped by section - top few named, the rest folded
+  // into "Other" (neutral color), same as reasonData above.
+  const { analysis: sectionAnalysis } = useSectionAnalysis({
+    factoryId: effectiveFactoryId,
+    year: selectedPeriod.year,
+    month: selectedPeriod.month,
+  });
+  const sectionData = useMemo(
+    () =>
+      (sectionAnalysis?.sections || []).map((s, i) => ({
+        label: s.label,
+        value: s.count,
+        color:
+          s.label === "Other"
+            ? OTHER_COLOR
+            : CATEGORICAL_COLORS[i % CATEGORICAL_COLORS.length],
+      })),
+    [sectionAnalysis],
+  );
+
+  // Same year/scope, grouped by age at resignation (Date of Resign - Date of
+  // Birth). "Not Recorded" (no Date of Birth on file) gets the neutral
+  // OTHER_COLOR; the age bands keep a fixed color each in band order.
+  const { analysis: ageAnalysis } = useAgeAnalysis({
+    factoryId: effectiveFactoryId,
+    year: selectedPeriod.year,
+    month: selectedPeriod.month,
+  });
+  const ageData = useMemo(
+    () =>
+      (ageAnalysis?.bands || []).map((b, i) => ({
+        label: b.label,
+        value: b.count,
+        color:
+          b.label === "Not Recorded"
+            ? OTHER_COLOR
+            : CATEGORICAL_COLORS[i % CATEGORICAL_COLORS.length],
+      })),
+    [ageAnalysis],
   );
 
   // Group-wide (or single-factory, once selected) Budget vs Allocated,
@@ -190,36 +319,13 @@ export default function DashboardPage() {
     };
   }, [trendMonths, ltoData, absenteeismData]);
 
-  // Most recent daily record per factory, by its Date field (not entry
-  // order) - a factory can have several batches on the same date, in which
-  // case the most recently entered one (createdAt) breaks the tie. This is
-  // the "right now" snapshot behind Current Headcount and Cadre Fulfilment's
-  // Allocated below, not year-scoped.
-  const latestByFactory = useMemo(() => {
-    const sorted = [...records].sort((a, b) => {
-      const dateCmp = (b.date || "").localeCompare(a.date || "");
-      if (dateCmp !== 0) return dateCmp;
-      return new Date(b.createdAt) - new Date(a.createdAt);
-    });
-    const map = new Map();
-    sorted.forEach((r) => {
-      if (r.factoryId == null || map.has(r.factoryId)) return;
-      map.set(r.factoryId, r);
-    });
-    return [...map.values()].sort((a, b) =>
-      (a.factory || "").localeCompare(b.factory || ""),
-    );
-  }, [records]);
-
-  // The same snapshot, narrowed to the current factory scope (a specific
-  // factory, or the user's own) - "All Factories" (Administrator) keeps
-  // every row, summing across the group.
-  const scopedLatestByFactory = useMemo(() => {
-    if (!effectiveFactoryId) return latestByFactory;
-    return latestByFactory.filter(
-      (r) => String(r.factoryId) === String(effectiveFactoryId),
-    );
-  }, [latestByFactory, effectiveFactoryId]);
+  // "Right now" snapshot (current month's latest record per factory, within
+  // the current scope) - behind the Current Headcount / Budget Fulfilment
+  // KPI tiles, which always describe today regardless of the Month filter.
+  const scopedLatestByFactory = useMemo(
+    () => latestPerFactory(records, effectiveFactoryId),
+    [records, effectiveFactoryId],
+  );
 
   const currentHeadcount = useMemo(
     () =>
@@ -230,25 +336,26 @@ export default function DashboardPage() {
     [scopedLatestByFactory],
   );
 
-  // Group-wide (or scoped) Budget vs Allocated, from each factory's latest
-  // record this month - mirrors the "Cadre Fulfilment" sheet (BUDGET /
-  // ALLOCATED / CADRE FULFILMENT_%). Allocated is that latest record's
-  // Allocated_Current MO+TMO (same figure as Current Headcount above), not
-  // Allocated_Actual - it's the headcount actually on the floor right now.
-  // The donut's two segments (Allocated + Shortage) sum to Budget, so the
-  // Allocated slice's own share *is* the Cadre Fulfilment %.
-  const fulfilmentTotals = useMemo(
-    () =>
-      scopedLatestByFactory.reduce(
-        (acc, r) => {
-          acc.budget += Number(r.pt) || 0;
-          acc.allocated += (Number(r.cmo) || 0) + (Number(r.ctmo) || 0);
-          return acc;
-        },
-        { budget: 0, allocated: 0 },
-      ),
+  const currentFulfilmentTotals = useMemo(
+    () => fulfilmentTotalsOf(scopedLatestByFactory),
     [scopedLatestByFactory],
   );
+  const fulfilmentPct = currentFulfilmentTotals.budget
+    ? Math.round(
+        (currentFulfilmentTotals.allocated / currentFulfilmentTotals.budget) *
+          1000,
+      ) / 10
+    : 0;
+
+  // The Cadre Fulfilment donut follows the Month filter instead - each
+  // factory's latest record within the selected month. The donut's two
+  // segments (Allocated + Shortage) sum to Budget, so the Allocated slice's
+  // own share *is* the Cadre Fulfilment %.
+  const fulfilmentTotals = useMemo(
+    () => fulfilmentTotalsOf(latestPerFactory(monthRecords, effectiveFactoryId)),
+    [monthRecords, effectiveFactoryId],
+  );
+
   const fulfilmentData = useMemo(() => {
     const shortage = Math.max(
       0,
@@ -263,13 +370,8 @@ export default function DashboardPage() {
       { label: "Shortage", value: shortage, color: CHART_COLORS.red },
     ];
   }, [fulfilmentTotals]);
-  const fulfilmentPct = fulfilmentTotals.budget
-    ? Math.round(
-        (fulfilmentTotals.allocated / fulfilmentTotals.budget) * 1000,
-      ) / 10
-    : 0;
-
   const scopeAndYear = `${scopeLabel} • ${selectedYear}`;
+  const scopeAndMonth = `${scopeLabel} • ${selectedPeriod.label}`;
 
   return (
     <div>
@@ -300,6 +402,19 @@ export default function DashboardPage() {
               ))}
             </select>
           )}
+
+          <select
+            value={selectedMonthKey}
+            onChange={(e) => setSelectedMonthKey(e.target.value)}
+            title="Month for Cadre Fulfilment and the monthly LTO breakdowns"
+            className="h-9 px-3 text-xs font-semibold border border-app-border rounded-md bg-white text-app-text focus:outline-none focus:ring-2 focus:ring-sky-100 focus:border-teal"
+          >
+            {MONTH_OPTIONS.map((m) => (
+              <option key={m.key} value={m.key}>
+                {m.label}
+              </option>
+            ))}
+          </select>
 
           <div className="flex gap-1 bg-app-bg rounded-md p-1">
             {YEAR_OPTIONS.map((y) => (
@@ -359,7 +474,10 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {canShowScoped ? (
           <>
-            <Card title="Cadre Fulfilment" variant="teal">
+            <Card
+              title={`Cadre Fulfilment (${selectedPeriod.label})`}
+              variant="teal"
+            >
               <div className="p-4 pt-3">
                 <DonutChart data={fulfilmentData} centerLabel="Cadre Budget" />
               </div>
@@ -448,16 +566,50 @@ export default function DashboardPage() {
                 <DonutChart data={serviceLengthData} centerLabel="Resigned" />
               </div>
             </Card>
-            <Card title="LTO by Reason" variant="orange">
-              <div className="p-4 pt-3">
-                <DonutChart data={reasonData} centerLabel="Resigned" />
-              </div>
-            </Card>
           </>
         ) : (
           <Card
             title="LTO by Length of Service"
             variant="green"
+            className="lg:col-span-2"
+          >
+            <div className="py-14 text-center text-sm text-slate-400">
+              No factory is assigned to your account. Contact an administrator
+              to assign one.
+            </div>
+          </Card>
+        )}
+      </div>
+
+      <SectionHeading title="Monthly LTO Breakdown" context={scopeAndMonth} />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {canShowScoped ? (
+          <>
+            <Card title="LTO by Reason" variant="orange">
+              <div className="p-4 pt-3">
+                <DonutChart data={reasonData} centerLabel="Resigned" />
+              </div>
+            </Card>
+            <Card title="LTO by Civil Status" variant="teal">
+              <div className="p-4 pt-3">
+                <DonutChart data={civilStatusData} centerLabel="Resigned" />
+              </div>
+            </Card>
+            <Card title="LTO by Section" variant="navy">
+              <div className="p-4 pt-3">
+                <DonutChart data={sectionData} centerLabel="Resigned" />
+              </div>
+            </Card>
+            <Card title="LTO by Age" variant="purple">
+              <div className="p-4 pt-3">
+                <DonutChart data={ageData} centerLabel="Resigned" />
+              </div>
+            </Card>
+          </>
+        ) : (
+          <Card
+            title="LTO by Reason"
+            variant="orange"
             className="lg:col-span-2"
           >
             <div className="py-14 text-center text-sm text-slate-400">

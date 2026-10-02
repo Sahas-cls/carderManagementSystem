@@ -32,7 +32,11 @@ export default function DonutChart({ data, centerLabel }) {
   const total = data.reduce((sum, d) => sum + d.value, 0);
 
   if (!total) {
-    return <div className="py-14 text-center text-sm text-slate-400">No data to show yet.</div>;
+    return (
+      <div className="py-14 text-center text-sm text-slate-400">
+        No data to show yet.
+      </div>
+    );
   }
 
   // Leave a 2deg gap between segments (surface gap, per the segment-spacing rule).
@@ -54,10 +58,12 @@ export default function DonutChart({ data, centerLabel }) {
       return acc;
     }, []);
 
-  const hovered = hoverLabel ? segments.find((s) => s.label === hoverLabel) : null;
+  const hovered = hoverLabel
+    ? segments.find((s) => s.label === hoverLabel)
+    : null;
 
   return (
-    <div className="flex flex-col sm:flex-row items-center gap-5 justify-center">
+    <div className="flex flex-col sm:flex-row items-center gap-5 justify-start h-full">
       <svg
         viewBox={`0 0 ${SIZE} ${SIZE}`}
         className="w-[170px] h-[170px] shrink-0"
@@ -75,7 +81,9 @@ export default function DonutChart({ data, centerLabel }) {
             opacity={hoverLabel && hoverLabel !== s.label ? 0.4 : 1}
             className="transition-all duration-150 cursor-pointer"
             onMouseEnter={() => setHoverLabel(s.label)}
-            onMouseLeave={() => setHoverLabel((cur) => (cur === s.label ? null : cur))}
+            onMouseLeave={() =>
+              setHoverLabel((cur) => (cur === s.label ? null : cur))
+            }
           >
             <title>
               {s.label}: {s.value} ({s.pct}%)
@@ -84,19 +92,47 @@ export default function DonutChart({ data, centerLabel }) {
         ))}
         {hovered ? (
           <>
-            <text x={CX} y={CY - 4} textAnchor="middle" fontSize="20" fontWeight="700" fill={hovered.color}>
+            <text
+              x={CX}
+              y={CY - 4}
+              textAnchor="middle"
+              fontSize="20"
+              fontWeight="700"
+              fill={hovered.color}
+            >
               {hovered.pct}%
             </text>
-            <text x={CX} y={CY + 15} textAnchor="middle" fontSize="9.5" fill={CHART_INK.muted}>
-              {hovered.label.length > 16 ? `${hovered.label.slice(0, 15)}…` : hovered.label}
+            <text
+              x={CX}
+              y={CY + 15}
+              textAnchor="middle"
+              fontSize="9.5"
+              fill={CHART_INK.muted}
+            >
+              {hovered.label.length > 16
+                ? `${hovered.label.slice(0, 15)}…`
+                : hovered.label}
             </text>
           </>
         ) : (
           <>
-            <text x={CX} y={CY - 4} textAnchor="middle" fontSize="22" fontWeight="700" fill={CHART_INK.primary}>
+            <text
+              x={CX}
+              y={CY - 4}
+              textAnchor="middle"
+              fontSize="22"
+              fontWeight="700"
+              fill={CHART_INK.primary}
+            >
               {total}
             </text>
-            <text x={CX} y={CY + 15} textAnchor="middle" fontSize="10" fill={CHART_INK.muted}>
+            <text
+              x={CX}
+              y={CY + 15}
+              textAnchor="middle"
+              fontSize="10"
+              fill={CHART_INK.muted}
+            >
               {centerLabel}
             </text>
           </>
@@ -111,10 +147,21 @@ export default function DonutChart({ data, centerLabel }) {
               hoverLabel === s.label ? "bg-app-bg" : ""
             }`}
             onMouseEnter={() => setHoverLabel(s.label)}
-            onMouseLeave={() => setHoverLabel((cur) => (cur === s.label ? null : cur))}
+            onMouseLeave={() =>
+              setHoverLabel((cur) => (cur === s.label ? null : cur))
+            }
           >
-            <span className="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: s.color }} />
-            <span className={hoverLabel === s.label ? "text-app-text font-semibold" : "text-app-text"}>
+            <span
+              className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
+              style={{ background: s.color }}
+            />
+            <span
+              className={
+                hoverLabel === s.label
+                  ? "text-app-text font-semibold"
+                  : "text-app-text"
+              }
+            >
               {s.label}
             </span>
             <span className="text-app-muted">

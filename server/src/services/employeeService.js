@@ -62,14 +62,25 @@ async function syncResignedEmployees(employees, batchId, transaction, isTransfer
     // silently overwritten; only a genuinely new employee needs one at all,
     // defaulted to their transfer's effective date.
     if (!isTransfer) fields.dateOfJoin = emp.dateOfJoin;
+    // Only collected on the Resigned/Terminated popup - leave whatever's on
+    // file alone for a Transfer row.
+    if (!isTransfer) {
+      fields.dateOfBirth = emp.dateOfBirth ?? null;
+      fields.civilStatus = emp.civilStatus ?? null;
+    }
 
-    const [record, created] = await Employee.findOrCreate({
-      where: { epf: emp.epf },
-      defaults: { epf: emp.epf, dateOfJoin: isTransfer ? emp.dateOfResign : emp.dateOfJoin, ...fields },
-      transaction,
-    });
-    if (!created) {
-      await record.update(fields, { transaction });
+    // paranoid:false - epf stays unique across soft-deleted rows too (e.g. a
+    // cleaned-up unlinked employee), so a returning epf must revive that row
+    // rather than insert a second one and hit the unique index.
+    const existing = await Employee.findOne({ where: { epf: emp.epf }, paranoid: false, transaction });
+    if (existing) {
+      if (existing.deletedAt) await existing.restore({ transaction });
+      await existing.update(fields, { transaction });
+    } else {
+      await Employee.create(
+        { epf: emp.epf, dateOfJoin: isTransfer ? emp.dateOfResign : emp.dateOfJoin, ...fields },
+        { transaction },
+      );
     }
   }
 
@@ -211,35 +222,52 @@ function formatDuration(totalMonths) {
 }
 
 /**
- * This year's resigned employees, optionally narrowed to one factory.
- * Employee has no factoryId of its own, so a factory filter is resolved via
- * batchId -> the ResignedCarder row for the daily entry that recorded the
- * resignation - shared by every LTO analysis below. Transfer-tile exits
+ * This year's resigned employees, optionally narrowed to one factory -
+ * shared by every LTO analysis below. Resolved the same way the dashboard's
+ * Resigned KPI / Recruitment & Resign trend is (dailyCadreService.getCadreTrend):
+ * from the ResignedCarder rows whose entry Date falls in the year (and, for
+ * the current year, no later than this month), then the employees linked to
+ * those entries via batchId. Going by entry Date rather than the employee's
+ * own dateOfResign keeps the two in step - and employees whose entry was
+ * deleted or who were trimmed off it (batchId cleared, but dateOfResign left
+ * behind) no longer linger in the analysis. Transfer-tile exits
  * (isTransfer: true - e.g. a promotion off the MO/TMO carder) are excluded:
  * LTO/attrition analysis is about people actually leaving, not moving
  * within the company.
  */
-async function getResignedEmployeesForYear({ factoryId, year, include } = {}) {
-  const y = year || new Date().getFullYear();
+async function getResignedEmployeesForYear({ factoryId, year, month, include } = {}) {
+  const now = new Date();
+  const y = year || now.getFullYear();
+  // `month` (1-12) narrows it to that one calendar month - the dashboard's
+  // Month filter. Otherwise the whole year, and the dashboard only sums
+  // realized months for the current year (see relevantMonthCount in
+  // DashboardPage.jsx) - stop at this month's end too.
+  const startMonth = month || 1;
+  const endMonth = month || (y === now.getFullYear() ? now.getMonth() + 1 : 12);
+  const endDay = new Date(Date.UTC(y, endMonth, 0)).getUTCDate();
+  const rangeStart = `${y}-${String(startMonth).padStart(2, "0")}-01`;
+  const rangeEnd = `${y}-${String(endMonth).padStart(2, "0")}-${String(endDay).padStart(2, "0")}`;
+
+  const batchWhere = { date: { [Op.between]: [rangeStart, rangeEnd] } };
+  if (factoryId) batchWhere.factoryId = factoryId;
+  const batches = await ResignedCarder.findAll({
+    where: batchWhere,
+    attributes: ["batchId"],
+    raw: true,
+  });
+  const batchIds = [...new Set(batches.map((b) => b.batchId))];
+  if (!batchIds.length) return { year: y, employees: [] };
+
   const employees = await Employee.findAll({
     where: {
-      dateOfResign: { [Op.between]: [`${y}-01-01`, `${y}-12-31`] },
+      batchId: { [Op.in]: batchIds },
       // NULL (legacy rows from before the Transfer tile existed) counts as
       // "not a transfer" here, same as it always implicitly did.
       [Op.or]: [{ isTransfer: false }, { isTransfer: null }],
     },
     include,
   });
-
-  if (!factoryId) return { year: y, employees };
-
-  const batches = await ResignedCarder.findAll({
-    where: { factoryId },
-    attributes: ["batchId"],
-    raw: true,
-  });
-  const allowedBatchIds = new Set(batches.map((b) => b.batchId));
-  return { year: y, employees: employees.filter((emp) => allowedBatchIds.has(emp.batchId)) };
+  return { year: y, employees };
 }
 
 /**
@@ -300,10 +328,11 @@ const MAX_NAMED_REASONS = 7;
  * their own slice, the rest (plus any employee left without a reason) fold
  * into a single "Other" bucket.
  */
-async function getReasonAnalysis({ factoryId, year } = {}) {
+async function getReasonAnalysis({ factoryId, year, month } = {}) {
   const { year: y, employees } = await getResignedEmployeesForYear({
     factoryId,
     year,
+    month,
     include: [{ model: ResignationReason, as: "resignationReason", attributes: ["resignedReason"] }],
   });
 
@@ -334,6 +363,129 @@ async function getReasonAnalysis({ factoryId, year } = {}) {
   };
 }
 
+// Fixed slice order for getCivilStatusAnalysis below. civilStatus is a plain
+// string column (not an ENUM), so anything else - blank on older rows
+// entered before the field existed, or an unexpected value - lands in
+// "Not Recorded".
+const CIVIL_STATUSES = ["Married", "Unmarried"];
+
+/**
+ * This year's resigned employees (optionally scoped to one factory), grouped
+ * by civil status (Married / Unmarried, as collected on the Resigned/
+ * Terminated popup) - backs the dashboard's "LTO by Civil Status" donut chart.
+ */
+async function getCivilStatusAnalysis({ factoryId, year, month } = {}) {
+  const { year: y, employees } = await getResignedEmployeesForYear({ factoryId, year, month });
+
+  const counts = new Map(CIVIL_STATUSES.map((label) => [label, 0]));
+  let notRecorded = 0;
+  employees.forEach((emp) => {
+    const status = CIVIL_STATUSES.find(
+      (s) => s.toLowerCase() === (emp.civilStatus || "").trim().toLowerCase()
+    );
+    if (status) counts.set(status, counts.get(status) + 1);
+    else notRecorded += 1;
+  });
+
+  const statuses = CIVIL_STATUSES.map((label) => ({ label, count: counts.get(label) }));
+  if (notRecorded > 0) statuses.push({ label: "Not Recorded", count: notRecorded });
+
+  return {
+    year: y,
+    total: employees.length,
+    statuses,
+  };
+}
+
+/**
+ * This year's resigned employees (optionally scoped to one factory), grouped
+ * by section - backs the dashboard's "LTO by Section" donut chart. Same
+ * top-MAX_NAMED_REASONS + "Other" folding as getReasonAnalysis above, for
+ * the same readability reason.
+ */
+async function getSectionAnalysis({ factoryId, year, month } = {}) {
+  const { year: y, employees } = await getResignedEmployeesForYear({
+    factoryId,
+    year,
+    month,
+    include: [{ model: Section, as: "section", attributes: ["sectionName"] }],
+  });
+
+  const counts = new Map(); // sectionId -> { label, count }
+  employees.forEach((emp) => {
+    const label = emp.section?.sectionName?.trim() || `Section #${emp.sectionId}`;
+    const entry = counts.get(emp.sectionId) || { label, count: 0 };
+    entry.count += 1;
+    counts.set(emp.sectionId, entry);
+  });
+
+  const sorted = [...counts.values()].sort((a, b) => b.count - a.count);
+  const sections = sorted.slice(0, MAX_NAMED_REASONS).map((s) => ({ label: s.label, count: s.count }));
+  const otherCount = sorted.slice(MAX_NAMED_REASONS).reduce((sum, s) => sum + s.count, 0);
+  if (otherCount > 0) sections.push({ label: "Other", count: otherCount });
+
+  return {
+    year: y,
+    total: employees.length,
+    sections,
+  };
+}
+
+// Age bands for getAgeAnalysis below, inclusive on both ends (max null = no
+// upper bound).
+const AGE_BANDS = [
+  { label: "16-18", min: 16, max: 18 },
+  { label: "19-30", min: 19, max: 30 },
+  { label: "31-40", min: 31, max: 40 },
+  { label: "41-50", min: 41, max: 50 },
+  { label: "Greater than 50", min: 51, max: null },
+];
+
+/** Whole years from dateOfBirth to dateOfResign (both "YYYY-MM-DD"), i.e. their age on the day they resigned. */
+function ageAtResign(dateOfBirth, dateOfResign) {
+  const [by, bm, bd] = dateOfBirth.split("-").map(Number);
+  const [ry, rm, rd] = dateOfResign.split("-").map(Number);
+  let age = ry - by;
+  if (rm < bm || (rm === bm && rd < bd)) age -= 1;
+  return age;
+}
+
+/**
+ * This year's resigned employees (optionally scoped to one factory), grouped
+ * by age at resignation (dateOfResign - dateOfBirth) into AGE_BANDS - backs
+ * the dashboard's "LTO by Age" donut chart. Employees without a Date of
+ * Birth (older rows entered before the field existed, or left blank) land in
+ * "Not Recorded"; anyone under the lowest band gets an "Under 16" slice
+ * rather than being silently dropped - both only appear when non-zero.
+ */
+async function getAgeAnalysis({ factoryId, year, month } = {}) {
+  const { year: y, employees } = await getResignedEmployeesForYear({ factoryId, year, month });
+
+  const counts = new Array(AGE_BANDS.length).fill(0);
+  let underMin = 0;
+  let notRecorded = 0;
+  employees.forEach((emp) => {
+    if (!emp.dateOfBirth || !emp.dateOfResign) {
+      notRecorded += 1;
+      return;
+    }
+    const age = ageAtResign(emp.dateOfBirth, emp.dateOfResign);
+    const idx = AGE_BANDS.findIndex((b) => age >= b.min && (b.max === null || age <= b.max));
+    if (idx === -1) underMin += 1;
+    else counts[idx] += 1;
+  });
+
+  const bands = AGE_BANDS.map((b, i) => ({ label: b.label, count: counts[i] }));
+  if (underMin > 0) bands.unshift({ label: `Under ${AGE_BANDS[0].min}`, count: underMin });
+  if (notRecorded > 0) bands.push({ label: "Not Recorded", count: notRecorded });
+
+  return {
+    year: y,
+    total: employees.length,
+    bands,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Employee Master (Manage Employees admin page) - general employee-details
 // CRUD, independent of the Daily Data Entry "Resigned Employees" flow above.
@@ -348,28 +500,68 @@ const EMPLOYEE_INCLUDE = [
   { model: ResignationReason, as: "resignationReason", attributes: ["id", "resignedReason"] },
 ];
 
-const DEFAULT_RECENT_LIMIT = 10;
-const SEARCH_RESULT_LIMIT = 50;
+const DEFAULT_PAGE_SIZE = 20;
 
 /**
- * Backs the Manage Employees page: with no search term, the 10 (or `limit`)
- * most recently added employees; with a search term, up to SEARCH_RESULT_LIMIT
- * employees whose EPF number contains it (partial match, so "123" finds
- * "EPF00123").
+ * Employees have no factory column of their own - they belong to a factory
+ * through their department (Department.factoryId). These are the department
+ * ids for `factoryId`; null (a user with no factory assigned) matches none.
  */
-async function listEmployees({ search, limit } = {}) {
-  if (search) {
-    return Employee.findAll({
-      where: { epf: { [Op.substring]: search } },
-      include: EMPLOYEE_INCLUDE,
-      order: [["epf", "ASC"]],
-      limit: SEARCH_RESULT_LIMIT,
-    });
+async function departmentIdsForFactory(factoryId) {
+  if (factoryId == null) return [];
+  const departments = await Department.findAll({
+    where: { factoryId },
+    attributes: ["id"],
+    raw: true,
+  });
+  return departments.map((d) => d.id);
+}
+
+/**
+ * Backs the Manage Employees page: one page of every employee, most recently
+ * added first - or, with a search term, of the employees whose EPF number
+ * contains it (partial match, so "123" finds "EPF00123"), sorted by EPF.
+ * Returns { rows, total, page, pageSize }, `total` being the full match
+ * count across all pages. `factoryId` (set for the User role - see
+ * employeeController.scopedFactoryId) narrows it to that factory's
+ * employees.
+ */
+async function listEmployees({ search, page = 1, pageSize = DEFAULT_PAGE_SIZE, factoryId } = {}) {
+  const where = {};
+  if (search) where.epf = { [Op.substring]: search };
+  if (factoryId !== undefined) {
+    where.departmentId = { [Op.in]: await departmentIdsForFactory(factoryId) };
   }
-  return Employee.findAll({
+  const { rows, count } = await Employee.findAndCountAll({
+    where,
     include: EMPLOYEE_INCLUDE,
-    order: [["createdAt", "DESC"]],
-    limit: limit || DEFAULT_RECENT_LIMIT,
+    order: search ? [["epf", "ASC"]] : [["createdAt", "DESC"], ["id", "DESC"]],
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
+    // Every include is a belongsTo, so this doesn't change the count - just
+    // keeps Sequelize from counting joined rows.
+    distinct: true,
+  });
+  return { rows, total: count, page, pageSize };
+}
+
+/**
+ * Employees who still carry an exit (dateOfResign) but are no longer tied to
+ * any Daily Data Entry - their entry was deleted (unlinkBatch) or they were
+ * trimmed off it (syncResignedEmployees' unlink step), both of which clear
+ * batchId but leave the exit fields behind. Also includes anyone given a
+ * Date of Resign directly on the Manage Employees page. Transfer-tile rows
+ * are never unlinked with isTransfer intact, so there's no telling them
+ * apart here - backs the Daily Entry page's "Unlinked Employees" list.
+ */
+async function listUnlinkedResignedEmployees() {
+  return Employee.findAll({
+    where: { batchId: null, dateOfResign: { [Op.ne]: null } },
+    include: EMPLOYEE_INCLUDE,
+    order: [
+      ["dateOfResign", "DESC"],
+      ["epf", "ASC"],
+    ],
   });
 }
 
@@ -387,17 +579,60 @@ async function assertEpfAvailable(epf, excludeId) {
   if (existing && existing.id !== excludeId) {
     throw new ApiError(409, `EPF number "${epf}" is already assigned to another employee.`);
   }
+  // epf is unique across soft-deleted rows too - catch that here instead of
+  // letting the insert/update fail on the DB's unique index.
+  const softDeleted = await Employee.findOne({
+    where: { epf, deletedAt: { [Op.ne]: null } },
+    paranoid: false,
+  });
+  if (softDeleted && softDeleted.id !== excludeId) return softDeleted;
+  return null;
 }
 
 async function createEmployeeRecord(fields) {
-  await assertEpfAvailable(fields.epf);
+  const softDeleted = await assertEpfAvailable(fields.epf);
+  // A soft-deleted employee (e.g. a cleaned-up unlinked resignation) with
+  // this epf - bring that row back with the new details instead of inserting.
+  if (softDeleted) {
+    await softDeleted.restore();
+    await softDeleted.update({
+      ...fields,
+      batchId: null,
+      isMo: null,
+      isTransfer: null,
+      promotedToMo: null,
+      newDesignationId: null,
+      dateOfRejoin: null,
+      rejoinedBatchId: null,
+      rejoinedIsMo: null,
+    });
+    return getEmployeeOr404(softDeleted.id);
+  }
   const employee = await Employee.create(fields);
   return getEmployeeOr404(employee.id);
 }
 
-async function updateEmployeeRecord(id, fields) {
+/**
+ * `factoryId` (set for the User role - see employeeController.scopedFactoryId)
+ * limits the edit to that factory's employees, and stops them being moved
+ * into another factory's department. An employee outside the factory is
+ * reported as not found rather than forbidden, so other factories'
+ * employee ids aren't confirmed to exist.
+ */
+async function updateEmployeeRecord(id, fields, { factoryId } = {}) {
   const employee = await getEmployeeOr404(id);
-  await assertEpfAvailable(fields.epf, employee.id);
+  if (factoryId !== undefined) {
+    const allowed = await departmentIdsForFactory(factoryId);
+    if (!allowed.includes(employee.departmentId)) {
+      throw new ApiError(404, `Employee ${id} not found.`);
+    }
+    if (!allowed.includes(fields.departmentId)) {
+      throw new ApiError(403, "You can only assign departments from your own factory.");
+    }
+  }
+  if (await assertEpfAvailable(fields.epf, employee.id)) {
+    throw new ApiError(409, `EPF number "${fields.epf}" belongs to a deleted employee record.`);
+  }
 
   await employee.update(fields);
   return getEmployeeOr404(id);
@@ -433,6 +668,10 @@ module.exports = {
   listRejoinedByBatchIds,
   getServiceLengthAnalysis,
   getReasonAnalysis,
+  getCivilStatusAnalysis,
+  getSectionAnalysis,
+  getAgeAnalysis,
+  listUnlinkedResignedEmployees,
   listEmployees,
   createEmployeeRecord,
   updateEmployeeRecord,

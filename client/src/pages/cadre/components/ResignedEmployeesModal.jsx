@@ -16,6 +16,9 @@ const EMPTY_ROW = {
   sectionId: "",
   dateOfJoin: "",
   dateOfResign: "",
+  // Optional, Resigned/Terminated rows only - not collected for Transfer.
+  dateOfBirth: "",
+  civilStatus: "",
   resignationReasonId: "",
   // Only shown/meaningful for a Transfer-tile TMO row - see the "Outcome"
   // dropdown below. Defaults to "stays, promoted to MO" (an MO row ignores
@@ -73,6 +76,7 @@ function isRowComplete(row, isTransfer) {
     return fields.every((field) => !!row[field]);
   }
   if (REQUIRED_FIELDS.some((field) => !row[field])) return false;
+  if (row.dateOfBirth && row.dateOfBirth >= row.dateOfJoin) return false;
   return row.dateOfResign >= row.dateOfJoin;
 }
 
@@ -139,6 +143,9 @@ export default function ResignedEmployeesModal({
         ...EMPTY_ROW,
         ...base[i],
         dateOfResign: base[i]?.dateOfResign || entryDate || "",
+        // Saved rows come back with null for these when never entered.
+        dateOfBirth: base[i]?.dateOfBirth || "",
+        civilStatus: base[i]?.civilStatus || "",
       }));
       return next;
     });
@@ -502,6 +509,48 @@ export default function ResignedEmployeesModal({
                   ))}
                 </select>
               </Field>
+
+              {!isTransfer && (
+                <Field label="Date of Birth">
+                  <input
+                    type="date"
+                    className={`w-full px-2.5 py-1.5 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      rows[activeIndex].dateOfBirth &&
+                      rows[activeIndex].dateOfJoin &&
+                      rows[activeIndex].dateOfBirth >= rows[activeIndex].dateOfJoin
+                        ? "border-red-400"
+                        : "border-gray-300"
+                    }`}
+                    value={rows[activeIndex].dateOfBirth}
+                    onChange={(e) =>
+                      updateRow(activeIndex, "dateOfBirth", e.target.value)
+                    }
+                  />
+                  {rows[activeIndex].dateOfBirth &&
+                    rows[activeIndex].dateOfJoin &&
+                    rows[activeIndex].dateOfBirth >= rows[activeIndex].dateOfJoin && (
+                      <p className="text-[11px] text-red-600 mt-1">
+                        Must be before Date of Joining.
+                      </p>
+                    )}
+                </Field>
+              )}
+
+              {!isTransfer && (
+                <Field label="Civil Status">
+                  <select
+                    className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={rows[activeIndex].civilStatus}
+                    onChange={(e) =>
+                      updateRow(activeIndex, "civilStatus", e.target.value)
+                    }
+                  >
+                    <option value="">Select…</option>
+                    <option value="Married">Married</option>
+                    <option value="Unmarried">Unmarried</option>
+                  </select>
+                </Field>
+              )}
 
               {!isTransfer && (
                 <Field label="Date of Joining">

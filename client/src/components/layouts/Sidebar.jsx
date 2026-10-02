@@ -12,6 +12,7 @@ import { GiDuration } from "react-icons/gi";
 import { MdWorkOutline, MdBusiness, MdViewModule } from "react-icons/md";
 import { PiIdentificationBadgeFill } from "react-icons/pi";
 import useAuth from "../../hooks/useAuth";
+import { ALLOW_USER_EMPLOYEE_EDITING } from "../../config/featureFlags";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: <TbLayoutDashboard />, end: true },
@@ -98,6 +99,12 @@ export default function Sidebar() {
   const adminNavItems = isSuperUser
     ? AD_NAV_ITEMS.filter((item) => item.to !== "/manage-users")
     : AD_NAV_ITEMS;
+  // Temporarily, the User role gets Employees in its Main Menu (see
+  // ALLOW_USER_EMPLOYEE_EDITING) - the Admin section stays admin-only.
+  const mainNavItems =
+    ALLOW_USER_EMPLOYEE_EDITING && !isAdmin && !isSuperUser
+      ? [...NAV_ITEMS, AD_NAV_ITEMS.find((item) => item.to === "/manage-employees")]
+      : NAV_ITEMS;
 
   return (
     <aside
@@ -116,7 +123,7 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex flex-col">
-        {NAV_ITEMS.map((item) => (
+        {mainNavItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}

@@ -8,7 +8,14 @@ const TD = "border border-slate-400 p-1.5";
 
 // Clickable header cell - click toggles asc/desc on that field, or switches
 // to sorting by this field (ascending) if a different column was active.
-function SortableTH({ label, sortKey, currentSort, onSort, className, ...rest }) {
+function SortableTH({
+  label,
+  sortKey,
+  currentSort,
+  onSort,
+  className,
+  ...rest
+}) {
   const active = currentSort.key === sortKey;
   return (
     <th
@@ -175,51 +182,315 @@ export default function DailyRecordsTable({
               )}
             </tr>
             <tr className="bg-[#376c9e] text-white text-[10px] h-9">
-              <SortableTH label="MO" sortKey="pmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="TMO" sortKey="ptmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Total" sortKey="pt" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="MO" sortKey="amo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="TMO" sortKey="atmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Total" sortKey="at" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="MO" sortKey="smo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="TMO" sortKey="stmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Total" sortKey="st" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="MO" sortKey="nmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="TMO" sortKey="ntmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Total" sortKey="nt" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="MO" sortKey="rjmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="TMO" sortKey="rjtmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Total" sortKey="rjt" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="MO" sortKey="relmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="TMO" sortKey="reltmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Total" sortKey="relt" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="MO" sortKey="rmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="TMO" sortKey="rtmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Total" sortKey="rt" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="MO" sortKey="tfmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="TMO" sortKey="tftmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Total" sortKey="tft" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="MO" sortKey="netmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="TMO" sortKey="netto" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Total" sortKey="nett" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="MO" sortKey="cmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="TMO" sortKey="ctmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Total" sortKey="ct" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="MO" sortKey="abmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="TMO" sortKey="abtmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Total" sortKey="abt" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="MO" sortKey="prmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="TMO" sortKey="prtmo" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Total" sortKey="prt" currentSort={sort} onSort={toggleSort} className={TH} />
+              <SortableTH
+                label="MO"
+                sortKey="pmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="TMO"
+                sortKey="ptmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Total"
+                sortKey="pt"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="MO"
+                sortKey="amo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="TMO"
+                sortKey="atmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Total"
+                sortKey="at"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="MO"
+                sortKey="smo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="TMO"
+                sortKey="stmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Total"
+                sortKey="st"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="MO"
+                sortKey="nmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="TMO"
+                sortKey="ntmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Total"
+                sortKey="nt"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="MO"
+                sortKey="rjmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="TMO"
+                sortKey="rjtmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Total"
+                sortKey="rjt"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="MO"
+                sortKey="relmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="TMO"
+                sortKey="reltmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Total"
+                sortKey="relt"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="MO"
+                sortKey="rmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="TMO"
+                sortKey="rtmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Total"
+                sortKey="rt"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="MO"
+                sortKey="tfmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="TMO"
+                sortKey="tftmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Total"
+                sortKey="tft"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="MO"
+                sortKey="netmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="TMO"
+                sortKey="netto"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Total"
+                sortKey="nett"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="MO"
+                sortKey="cmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="TMO"
+                sortKey="ctmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Total"
+                sortKey="ct"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="MO"
+                sortKey="abmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="TMO"
+                sortKey="abtmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Total"
+                sortKey="abt"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="MO"
+                sortKey="prmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="TMO"
+                sortKey="prtmo"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Total"
+                sortKey="prt"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
               {/* TRAINING CENTER COLS  */}
-              <SortableTH label="Planned" sortKey="tcp" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Allocated" sortKey="tca" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Recruit" sortKey="tcr" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Resigned" sortKey="tcs" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Transfer to Pro Line" sortKey="tct" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Actual Allocated" sortKey="tactual" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Absent." sortKey="tcab" currentSort={sort} onSort={toggleSort} className={TH} />
-              <SortableTH label="Present" sortKey="tcpresent" currentSort={sort} onSort={toggleSort} className={TH} />
+              <SortableTH
+                label="Planned"
+                sortKey="tcp"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Allocated"
+                sortKey="tca"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Recruit"
+                sortKey="tcr"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Resigned"
+                sortKey="tcs"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Transfer to Pro Line"
+                sortKey="tct"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Actual Allocated"
+                sortKey="tactual"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Absent."
+                sortKey="tcab"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Present"
+                sortKey="tcpresent"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
             </tr>
           </thead>
           <tbody>
@@ -237,6 +508,7 @@ export default function DailyRecordsTable({
               sortedRecords.map((r) => (
                 <tr
                   key={r.batchId}
+                  onDoubleClick={() => onEdit(r)}
                   className={`text-center ${
                     r.batchId === highlightBatchId
                       ? "bg-amber-100 hover:bg-amber-200 text-navy-dark font-semibold"

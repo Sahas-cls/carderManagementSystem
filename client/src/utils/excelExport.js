@@ -245,3 +245,184 @@ export async function exportWeeklyExcel(records) {
 
   await downloadWorkbook(workbook, "Weekly_Cadre_Status_Report.xlsx");
 }
+
+// ---------------------------------------------------------------------------
+// "Weekly Cadre Status Report" (Weekly Data View's Download Excel 2) - laid
+// out like the HR team's own "Weekly Cadre Status Report_ <Month>.xlsx":
+// one block of weekly rows per factory, thin spacer columns between the
+// MO/TMO groups, and Total/Present cells as live Excel formulas.
+// ---------------------------------------------------------------------------
+
+const REPORT_TITLE = "Concord_ Sri Lanka";
+const REPORT_HEADER_FILL = "FF3B618E"; // the template's accent1, 25% darker
+const REPORT_TOTAL_FILL = "FFD2DBE5"; // the template's light-blue Total columns
+const REPORT_FONT = { name: "Calibri", size: 10 };
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+/** 1 -> "1st", 2 -> "2nd", 11 -> "11th", 22 -> "22nd". */
+function ordinal(n) {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  return `${n}${{ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th"}`;
+}
+
+/** "July_August_September 2026", or "December 2025_January 2026" across a year boundary. */
+function monthSpanLabel(from, to) {
+  const [fy, fm] = from.split("-").map(Number);
+  const [ty, tm] = to.split("-").map(Number);
+  const parts = [];
+  for (let y = fy, m = fm; y < ty || (y === ty && m <= tm); m === 12 ? (y += 1, m = 1) : (m += 1)) {
+    parts.push({ y, name: MONTH_NAMES[m - 1] });
+  }
+  if (fy === ty) return `${parts.map((p) => p.name).join("_")} ${fy}`;
+  return parts.map((p) => `${p.name} ${p.y}`).join("_");
+}
+
+// Column layout, mirroring the template (plus a Budget group ahead of
+// Allocated): A Se No, B Company, C Week/Date, then MO/TMO/Total groups at
+// E-G (Budget), I-K (Allocated), M-O (Absent), Q-S (Present) and the
+// Training Center at U-W, with narrow blank spacer columns (D, H, L, P, T)
+// between them.
+const REPORT_WIDTHS = {
+  A: 5, B: 34, C: 30, D: 1,
+  E: 8, F: 8, G: 8, H: 1,
+  I: 8, J: 8, K: 8, L: 1,
+  M: 8, N: 8, O: 8, P: 1,
+  Q: 8, R: 8, S: 8, T: 1,
+  U: 10, V: 8, W: 9,
+};
+const REPORT_GROUPS = [
+  { start: "E", end: "G", header: "Budget_MO/TMO", subs: ["MO", "TMO", "Total"] },
+  { start: "I", end: "K", header: "Allocated_MO/TMO", subs: ["MO", "TMO", "Total"] },
+  { start: "M", end: "O", header: "Absent. MO/ TMO", subs: ["MO", "TMO", "Total"] },
+  { start: "Q", end: "S", header: "Present MO/TMO", subs: ["MO", "TMO", "Total"] },
+  { start: "U", end: "W", header: "TMO_ Training Center", subs: ["Allocated", "Absent.", "Present"] },
+];
+const TOTAL_COLS = new Set(["G", "K", "O", "S", "W"]);
+const REPORT_DATA_COLS = [
+  "A", "B", "C",
+  "E", "F", "G",
+  "I", "J", "K",
+  "M", "N", "O",
+  "Q", "R", "S",
+  "U", "V", "W",
+];
+
+function styleReportHeader(cell, { bold = false } = {}) {
+  cell.font = { ...REPORT_FONT, bold, color: { argb: WHITE } };
+  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: REPORT_HEADER_FILL } };
+  cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+  cell.border = ALL_BORDERS;
+}
+
+/**
+ * Builds and downloads the Weekly Cadre Status Report for `rows` (from
+ * getWeeklyStatusReport - already sorted by factory, then date) covering
+ * [from, to]. Each factory's weeks are numbered within their own month
+ * ("1st Week_ 1st July 2026", "2nd Week_ 7th July 2026", ...).
+ */
+export async function exportWeeklyStatusReport(rows, { from, to }) {
+  const workbook = new ExcelJS.Workbook();
+  const ws = workbook.addWorksheet("Cadre_Status", {
+    views: [{ state: "frozen", ySplit: 4, showGridLines: false }],
+  });
+  Object.entries(REPORT_WIDTHS).forEach(([col, width]) => {
+    ws.getColumn(col).width = width;
+  });
+
+  ws.getCell("A1").value = REPORT_TITLE;
+  ws.getCell("A1").font = { name: "Calibri", size: 12, bold: true };
+  ws.getCell("A2").value = `MO/ TMO Cadre Status_ ${monthSpanLabel(from, to)}`;
+  ws.getCell("A2").font = { name: "Calibri", size: 11 };
+
+  // Two-row header (rows 3-4).
+  [["A", "Se No"], ["B", "Company Name"], ["C", "Week No/ Date"]].forEach(([col, label]) => {
+    ws.mergeCells(`${col}3:${col}4`);
+    ws.getCell(`${col}3`).value = label;
+    styleReportHeader(ws.getCell(`${col}3`));
+    styleReportHeader(ws.getCell(`${col}4`));
+  });
+  REPORT_GROUPS.forEach(({ start, end, header, subs }) => {
+    ws.mergeCells(`${start}3:${end}3`);
+    ws.getCell(`${start}3`).value = header;
+    const startCode = start.charCodeAt(0);
+    subs.forEach((label, i) => {
+      const col = String.fromCharCode(startCode + i);
+      styleReportHeader(ws.getCell(`${col}3`));
+      ws.getCell(`${col}4`).value = label;
+      styleReportHeader(ws.getCell(`${col}4`), { bold: TOTAL_COLS.has(col) });
+    });
+  });
+  ws.getRow(3).height = 26;
+  ws.getRow(4).height = 17;
+
+  // Group by factory, keeping the incoming (factory, date) order.
+  const blocks = new Map();
+  rows.forEach((r) => {
+    if (!blocks.has(r.factoryId)) blocks.set(r.factoryId, { factory: r.factory, rows: [] });
+    blocks.get(r.factoryId).rows.push(r);
+  });
+
+  let rowNum = 5;
+  let serial = 0;
+  for (const { factory, rows: weekRows } of blocks.values()) {
+    serial += 1;
+    const blockStart = rowNum;
+    const weekOfMonth = new Map(); // "YYYY-MM" -> running count within this factory
+    weekRows.forEach((r) => {
+      const [y, m, d] = r.date.split("-").map(Number);
+      const monthKey = r.date.slice(0, 7);
+      const nth = (weekOfMonth.get(monthKey) || 0) + 1;
+      weekOfMonth.set(monthKey, nth);
+
+      const n = rowNum;
+      const values = {
+        C: `${ordinal(nth)} Week_ ${ordinal(d)} ${MONTH_NAMES[m - 1]} ${y}`,
+        E: r.budgetMO,
+        F: r.budgetTMO,
+        G: { formula: `E${n}+F${n}` },
+        I: r.allocatedMO,
+        J: r.allocatedTMO,
+        K: { formula: `I${n}+J${n}` },
+        M: r.absentMO,
+        N: r.absentTMO,
+        O: { formula: `SUM(M${n}:N${n})` },
+        Q: { formula: `I${n}-M${n}` },
+        R: { formula: `J${n}-N${n}` },
+        S: { formula: `K${n}-O${n}` },
+        U: r.tcAllocated,
+        V: r.tcAbsent,
+        W: { formula: `U${n}-V${n}` },
+      };
+      REPORT_DATA_COLS.forEach((col) => {
+        const cell = ws.getCell(`${col}${n}`);
+        if (values[col] !== undefined) cell.value = values[col];
+        cell.font = { ...REPORT_FONT, bold: TOTAL_COLS.has(col) };
+        cell.border = ALL_BORDERS;
+        if (TOTAL_COLS.has(col)) {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: REPORT_TOTAL_FILL } };
+        }
+        if (col >= "E") cell.numFmt = "#,##0";
+      });
+      ws.getRow(n).height = 13;
+      rowNum += 1;
+    });
+
+    // Se No / Company Name span the factory's whole block.
+    if (rowNum - 1 > blockStart) {
+      ws.mergeCells(`A${blockStart}:A${rowNum - 1}`);
+      ws.mergeCells(`B${blockStart}:B${rowNum - 1}`);
+    }
+    ws.getCell(`A${blockStart}`).value = serial;
+    ws.getCell(`A${blockStart}`).alignment = { horizontal: "center", vertical: "top" };
+    ws.getCell(`B${blockStart}`).value = factory;
+    ws.getCell(`B${blockStart}`).alignment = { vertical: "top", wrapText: true };
+
+    rowNum += 1; // blank spacer row between factories
+  }
+
+  await downloadWorkbook(workbook, `Weekly Cadre Status Report_ ${monthSpanLabel(from, to)}.xlsx`);
+}

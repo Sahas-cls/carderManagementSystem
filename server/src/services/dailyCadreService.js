@@ -257,6 +257,8 @@ function flattenExitEmployee(e) {
     sectionId: e.sectionId,
     dateOfJoin: e.dateOfJoin,
     dateOfResign: e.dateOfResign,
+    dateOfBirth: e.dateOfBirth,
+    civilStatus: e.civilStatus,
     resignationReasonId: e.resignationReasonId,
     isMo: e.isMo,
     // Only meaningful on a Transfer row (see Employee.promotedToMo) -

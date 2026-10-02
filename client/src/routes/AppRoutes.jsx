@@ -19,6 +19,7 @@ import ManageDesignationPage from "../pages/admin/ManageDesignationPage";
 import ManageDepartmentPage from "../pages/admin/ManageDepartmentPage";
 import ManageSectionPage from "../pages/admin/ManageSectionPage";
 import ManageEmployeesPage from "../pages/admin/ManageEmployeesPage";
+import { ALLOW_USER_EMPLOYEE_EDITING } from "../config/featureFlags";
 
 export default function AppRoutes() {
   return (
@@ -49,8 +50,22 @@ export default function AppRoutes() {
               </Route>
 
               {/* The rest of the Admin section is viewable (read-only) by SuperUser too - each page itself hides its add/edit/delete controls for that role. */}
-              <Route element={<ProtectedRoute roles={["Administrator", "SuperUser"]} />}>
+              {/* Manage Employees is temporarily open to the User role too - see ALLOW_USER_EMPLOYEE_EDITING. */}
+              <Route
+                element={
+                  <ProtectedRoute
+                    roles={[
+                      "Administrator",
+                      "SuperUser",
+                      ...(ALLOW_USER_EMPLOYEE_EDITING ? ["User"] : []),
+                    ]}
+                  />
+                }
+              >
                 <Route path="/manage-employees" element={<ManageEmployeesPage />} />
+              </Route>
+
+              <Route element={<ProtectedRoute roles={["Administrator", "SuperUser"]} />}>
                 <Route path="/factory-master" element={<ManageFactoryPage />} />
                 <Route path="/budget-master" element={<ManageBudget />} />
                 <Route

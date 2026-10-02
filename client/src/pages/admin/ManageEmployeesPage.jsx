@@ -11,12 +11,14 @@ import { getDesignations } from "../../services/designationServices";
 import { getDepartments } from "../../services/departmentServices";
 import { getSections } from "../../services/sectionServices";
 import { getResignationReasons } from "../../services/resignationReasonServices";
+import { getFactories } from "../../services/cadreServices";
 import {
   getEmployees,
   createEmployee,
   editEmployee,
   deleteEmployee,
 } from "../../services/employeeServices";
+import { ALLOW_USER_EMPLOYEE_EDITING } from "../../config/featureFlags";
 
 const EMPTY_FORM = {
   epf: "",
@@ -27,9 +29,12 @@ const EMPTY_FORM = {
   dateOfJoin: "",
   dateOfResign: "",
   resignationReasonId: "",
+  dateOfBirth: "",
+  civilStatus: "",
+  gender: "",
 };
 
-const RECENT_LIMIT = 10;
+const PAGE_SIZE = 20;
 
 const formatDate = (date) => {
   if (!date) return "-";
@@ -43,18 +48,35 @@ const formatDate = (date) => {
 };
 
 /**
- * Manage Employees (Employee Master) - shows the 10 most recently added
- * employees by default, lets the user search for any other employee by EPF
- * number, and (Administrator only) edit employee details. Route is gated by
- * <ProtectedRoute roles={["Administrator", "SuperUser"]} /> in AppRoutes;
- * the server independently enforces the same read/write split on every
- * /employees call.
+ * Manage Employees (Employee Master) - every employee, PAGE_SIZE per page
+ * (most recently added first), searchable by EPF number, and editable by an
+ * Administrator - plus, temporarily, the User role (see
+ * ALLOW_USER_EMPLOYEE_EDITING), so they can fill in the Date of Birth /
+ * Civil Status / Gender missing on older records. Route is gated in
+ * AppRoutes; the server independently enforces the same read/write split on
+ * every /employees call.
  */
 const ManageEmployeesPage = () => {
   const { user } = useAuth();
-  // SuperUser can view every employee but never add/edit/delete one.
-  const canEdit = user?.role?.userRole !== "SuperUser";
+  // SuperUser can view every employee but never add/edit/delete one; the
+  // User role can edit (never add/delete) while ALLOW_USER_EMPLOYEE_EDITING
+  // is on.
+  const role = user?.role?.userRole;
+  const canEdit =
+    role === "Administrator" ||
+    (ALLOW_USER_EMPLOYEE_EDITING && role === "User");
+  // The User role only sees its own factory's employees (the server enforces
+  // this) - so the Department dropdown only offers that factory's departments.
+  const departmentFactoryId =
+    role === "User" ? (user?.factory?.id ?? null) : undefined;
+  // Everyone else (Administrator/SuperUser) gets a Factory filter instead -
+  // "" means every factory.
+  const canFilterByFactory = role !== "User";
+  const [factories, setFactories] = useState([]);
+  const [factoryFilter, setFactoryFilter] = useState("");
   const [employees, setEmployees] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [designations, setDesignations] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [sections, setSections] = useState([]);
@@ -74,7 +96,10 @@ const ManageEmployeesPage = () => {
 
   // Debounce the EPF search box so we're not firing a request per keystroke.
   useEffect(() => {
-    const timer = setTimeout(() => setSearch(searchInput.trim()), 350);
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 350);
     return () => clearTimeout(timer);
   }, [searchInput]);
 
@@ -86,7 +111,11 @@ const ManageEmployeesPage = () => {
         const [designationList, departmentList, sectionList, reasonList] =
           await Promise.all([
             getDesignations(),
-            getDepartments(),
+            // A User with no factory assigned has no employees to edit, so
+            // no departments to offer either.
+            departmentFactoryId === null
+              ? []
+              : getDepartments(departmentFactoryId),
             getSections(),
             getResignationReasons(),
           ]);
@@ -111,18 +140,41 @@ const ManageEmployeesPage = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [departmentFactoryId]);
 
-  // The employee list itself - recently added by default, or EPF search results.
+  // Factory filter options - Administrator/SuperUser only.
+  useEffect(() => {
+    if (!canFilterByFactory) return;
+    let cancelled = false;
+    getFactories()
+      .then((list) => {
+        if (!cancelled) setFactories(list || []);
+      })
+      .catch(() => {
+        // Non-fatal - the filter just stays at "All Factories".
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canFilterByFactory]);
+
+  // The employee list itself - one page of everyone (or of the EPF search results).
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
       try {
-        const list = await getEmployees(
-          search ? { search } : { limit: RECENT_LIMIT },
-        );
-        if (!cancelled) setEmployees(list);
+        const result = await getEmployees({
+          search: search || undefined,
+          // Ignored server-side for the User role (pinned to its own factory).
+          factoryId: factoryFilter || undefined,
+          page,
+          pageSize: PAGE_SIZE,
+        });
+        if (!cancelled) {
+          setEmployees(result.rows || []);
+          setTotal(result.total || 0);
+        }
       } catch (error) {
         if (!cancelled) {
           Swal.fire({
@@ -140,7 +192,7 @@ const ManageEmployeesPage = () => {
     return () => {
       cancelled = true;
     };
-  }, [reloadToken, search]);
+  }, [reloadToken, search, factoryFilter, page]);
 
   const resetForm = () => {
     setForm({ ...EMPTY_FORM });
@@ -195,6 +247,15 @@ const ManageEmployeesPage = () => {
       });
       return;
     }
+    if (form.dateOfBirth && form.dateOfBirth >= form.dateOfJoin) {
+      Swal.fire({
+        title: "Validation Error",
+        text: "Date of Birth must be before Date of Join.",
+        icon: "error",
+        confirmButtonText: "OK",
+      });
+      return;
+    }
 
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -210,6 +271,9 @@ const ManageEmployeesPage = () => {
       resignationReasonId: form.resignationReasonId
         ? Number(form.resignationReasonId)
         : null,
+      dateOfBirth: form.dateOfBirth || null,
+      civilStatus: form.civilStatus || null,
+      gender: form.gender || null,
     };
 
     try {
@@ -259,6 +323,9 @@ const ManageEmployeesPage = () => {
       resignationReasonId: row.resignationReasonId
         ? String(row.resignationReasonId)
         : "",
+      dateOfBirth: row.dateOfBirth || "",
+      civilStatus: row.civilStatus || "",
+      gender: row.gender || "",
     });
     setEditingId(row.id);
     setShowForm(true);
@@ -327,6 +394,7 @@ const ManageEmployeesPage = () => {
   };
 
   const isSearching = Boolean(search);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <div className="p-4">
@@ -464,6 +532,39 @@ const ManageEmployeesPage = () => {
               </FieldSelect>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <FieldInput
+                label="Date of Birth (optional)"
+                type="date"
+                value={form.dateOfBirth}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, dateOfBirth: e.target.value }))
+                }
+              />
+              <FieldSelect
+                label="Civil Status (optional)"
+                value={form.civilStatus}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, civilStatus: e.target.value }))
+                }
+              >
+                <option value="">Select Civil Status</option>
+                <option value="Married">Married</option>
+                <option value="Unmarried">Unmarried</option>
+              </FieldSelect>
+              <FieldSelect
+                label="Gender (optional)"
+                value={form.gender}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, gender: e.target.value }))
+                }
+              >
+                <option value="">Select Gender</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+              </FieldSelect>
+            </div>
+
             <div className="mt-4 flex gap-4 justify-end">
               <Button
                 type="button"
@@ -494,13 +595,30 @@ const ManageEmployeesPage = () => {
       <div className="mt-4 rounded-md">
         <Card
           title={
-            isSearching
-              ? `Search Results for "${search}"`
-              : "Recently Added Employees"
+            isSearching ? `Search Results for "${search}"` : "All Employees"
           }
           variant="navy"
           actions={
             <div className="flex items-center gap-3">
+              {canFilterByFactory && (
+                <select
+                  value={factoryFilter}
+                  onChange={(e) => {
+                    setFactoryFilter(e.target.value);
+                    setPage(1);
+                  }}
+                  className="rounded border border-white/40 bg-white/10 px-2 py-1 text-white text-xs focus:outline-none focus:ring-1 focus:ring-white"
+                >
+                  <option value="" className="text-gray-800">
+                    All Factories
+                  </option>
+                  {factories.map((f) => (
+                    <option key={f.id} value={f.id} className="text-gray-800">
+                      {f.factoryName}
+                    </option>
+                  ))}
+                </select>
+              )}
               <input
                 type="text"
                 value={searchInput}
@@ -518,7 +636,7 @@ const ManageEmployeesPage = () => {
                 </button>
               )}
               <CountBadge>
-                {employees.length} employee{employees.length === 1 ? "" : "s"}
+                {total} employee{total === 1 ? "" : "s"}
               </CountBadge>
             </div>
           }
@@ -544,6 +662,9 @@ const ManageEmployeesPage = () => {
                     <th className="py-2 pr-3">Department</th>
                     <th className="py-2 pr-3">Section</th>
                     <th className="py-2 pr-3">Date of Join</th>
+                    <th className="py-2 pr-3">Date of Birth</th>
+                    <th className="py-2 pr-3">Civil Status</th>
+                    <th className="py-2 pr-3">Gender</th>
                     <th className="py-2 pr-3">Status</th>
                     {canEdit && (
                       <th className="py-2 pr-3 text-center">Actions</th>
@@ -554,7 +675,7 @@ const ManageEmployeesPage = () => {
                   {employees.map((row) => (
                     <tr
                       key={row.id}
-                      className="border-b border-gray-200 hover:bg-gray-50 transition-colors"
+                      className={`border-b border-gray-200 hover:bg-gray-50 transition-colors ${!row.gender ? "bg-red-50" : ""}`}
                     >
                       <td className="py-2.5 pr-3 font-medium text-gray-800">
                         {row.epf}
@@ -573,6 +694,15 @@ const ManageEmployeesPage = () => {
                       </td>
                       <td className="py-2.5 pr-3 text-gray-500 text-xs">
                         {formatDate(row.dateOfJoin)}
+                      </td>
+                      <td className="py-2.5 pr-3 text-gray-500 text-xs">
+                        {formatDate(row.dateOfBirth)}
+                      </td>
+                      <td className="py-2.5 pr-3 text-gray-600">
+                        {row.civilStatus || "-"}
+                      </td>
+                      <td className="py-2.5 pr-3 text-gray-600">
+                        {row.gender || "-"}
                       </td>
                       <td className="py-2.5 pr-3">
                         <span
@@ -610,6 +740,33 @@ const ManageEmployeesPage = () => {
                   ))}
                 </tbody>
               </table>
+            )}
+            {!loading && total > PAGE_SIZE && (
+              <div className="flex items-center justify-between gap-3 pt-3 text-xs text-gray-500">
+                <span>
+                  Showing {(page - 1) * PAGE_SIZE + 1}-
+                  {Math.min(page * PAGE_SIZE, total)} of {total}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => setPage((p) => p - 1)}
+                    disabled={page <= 1}
+                  >
+                    Previous
+                  </Button>
+                  <span>
+                    Page {page} of {totalPages}
+                  </span>
+                  <Button
+                    type="button"
+                    onClick={() => setPage((p) => p + 1)}
+                    disabled={page >= totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
             )}
           </div>
         </Card>

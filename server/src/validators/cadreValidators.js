@@ -32,7 +32,29 @@ function validateWeeklyQuery(req, res, next) {
   }
 }
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Validates GET /cadre/weekly-report's ?from=&to= (both required, YYYY-MM-DD, from <= to) and optional ?factoryId=. */
+function validateWeeklyReportQuery(req, res, next) {
+  try {
+    const { from, to } = req.query;
+    if (typeof from !== "string" || !DATE_RE.test(from) || typeof to !== "string" || !DATE_RE.test(to)) {
+      throw new ApiError(400, "from and to must be valid dates in YYYY-MM-DD format.");
+    }
+    if (from > to) throw new ApiError(400, "The From date cannot be after the To date.");
+    req.filters = {
+      from,
+      to,
+      factoryId: parseOptionalId(req.query.factoryId, "factoryId"),
+    };
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
+  validateWeeklyReportQuery,
   parseOptionalId,
   parseRequiredId,
   validateWeeklyQuery,

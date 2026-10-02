@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
-import { getReasonAnalysis } from "../services/employeeServices";
+import { getCivilStatusAnalysis } from "../services/employeeServices";
 
 /**
- * Loads this year's resigned-employee counts grouped by resignation reason,
- * optionally scoped to one factory - backs the Dashboard's "LTO by Reason"
- * pie chart (mirrors the "LTO_ Analysis_Reason" sheet in the HR Performance
- * Analysis report). Re-fetches whenever `factoryId`, `year` or `month`
- * (optional, 1-12 - narrows to one calendar month) changes.
+ * Loads this year's resigned-employee counts grouped by civil status
+ * (Married / Unmarried / Not Recorded), optionally scoped to one factory -
+ * backs the Dashboard's "LTO by Civil Status" donut chart. Re-fetches
+ * whenever `factoryId`, `year` or `month` changes. `month` (optional, 1-12) narrows it to one
+ * calendar month - the dashboard's Month filter.
  */
-export default function useReasonAnalysis({ factoryId, year, month } = {}) {
+export default function useCivilStatusAnalysis({ factoryId, year, month } = {}) {
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -18,7 +18,7 @@ export default function useReasonAnalysis({ factoryId, year, month } = {}) {
     async function load() {
       setLoading(true);
       try {
-        const data = await getReasonAnalysis({ factoryId, year, month });
+        const data = await getCivilStatusAnalysis({ factoryId, year, month });
         if (!cancelled) {
           setAnalysis(data);
           setError("");

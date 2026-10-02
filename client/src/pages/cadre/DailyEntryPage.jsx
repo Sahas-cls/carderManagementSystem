@@ -18,6 +18,7 @@ import { exportDailyExcel } from "../../utils/excelExport";
 import CadreDetailsCard from "./components/CadreDetailsCard";
 import DailyRecordsTable from "./components/DailyRecordsTable";
 import RecordInfoCard from "./components/RecordInfoCard";
+import UnlinkedEmployeesModal from "./components/UnlinkedEmployeesModal";
 
 function notifySuccess(message, title = "Success!") {
   Swal.fire({
@@ -57,6 +58,9 @@ export default function DailyEntryPage() {
   // Administrator/SuperUser can switch it to another factory via the
   // table's factory filter.
   const [recordsFactoryId, setRecordsFactoryId] = useState(userFactoryId);
+  // Unlinked employees aren't tied to any factory, so the list is only
+  // offered to the same roles that can see every factory's records.
+  const [showUnlinked, setShowUnlinked] = useState(false);
   const emptyForm = useMemo(
     () => ({
       ...EMPTY_CADRE_FORM,
@@ -87,7 +91,10 @@ export default function DailyEntryPage() {
     updateRecord,
     deleteRecord,
     refetch,
-  } = useDailyCadreRecords(canFilterFactory ? recordsFactoryId : userFactoryId, period);
+  } = useDailyCadreRecords(
+    canFilterFactory ? recordsFactoryId : userFactoryId,
+    period,
+  );
   const [form, setForm] = useState(emptyForm);
   const [editingRecord, setEditingRecord] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -203,7 +210,7 @@ export default function DailyEntryPage() {
       "dateOfJoin",
       "dateOfResign",
       "resignationReasonId",
-    ];  
+    ];
     if (resignedTotal > 0 && resignedEmployees.length !== resignedTotal) {
       notifyError(
         `Please enter details for all ${resignedTotal} resigned employee(s) (see the Resigned/Terminated popup) before submitting.`,
@@ -279,7 +286,7 @@ export default function DailyEntryPage() {
     setForm(recordToForm(record));
     setEditingRecord(record);
     notifySuccess("Record loaded. Make your changes and click Update Record.");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    // window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleDelete = async (record) => {
@@ -343,14 +350,27 @@ export default function DailyEntryPage() {
               Clear
             </Button>
             <Button variant="primary" onClick={handleAdd} disabled={saving}>
-              {saving ? "Saving…" : isEditing ? "Update Record" : "Add to Table"}
+              {saving
+                ? "Saving…"
+                : isEditing
+                  ? "Update Record"
+                  : "Add to Table"}
             </Button>
           </>
         )}
-        <Button  variant="teal" onClick={handleDownload}>
+        {canFilterFactory && (
+          <Button onClick={() => setShowUnlinked(true)}>
+            Unlinked Employees
+          </Button>
+        )}
+        <Button variant="teal" onClick={handleDownload}>
           Download Excel
         </Button>
       </div>
+
+      {showUnlinked && (
+        <UnlinkedEmployeesModal onClose={() => setShowUnlinked(false)} />
+      )}
 
       {loading ? (
         <div className="p-10 text-center text-sm text-slate-400">
