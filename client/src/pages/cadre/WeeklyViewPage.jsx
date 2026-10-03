@@ -1,3 +1,5 @@
+// git new 5:26pm
+
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../../components/ui/Button";
@@ -133,7 +135,6 @@ export default function WeeklyViewPage() {
               </option>
             ))}
           </FieldSelect>
-
           <div className="flex gap-2">
             <Button onClick={handleClear}>Clear</Button>
             <Button variant="orange" onClick={handleDownload}>
