@@ -4,7 +4,7 @@ const { Op } = require("sequelize");
 const {
   Week,
   Factory,
-  AllocatedActualCarder,
+  AllocatedCurrentCarder,
   AbsenteeismCarder,
   PresentCarder,
   TrainingCenter,
@@ -20,7 +20,7 @@ function keyFor(weekId, factoryId) {
 /**
  * Builds the Weekly Data View rows for the Cadre module: one row per
  * (week, factory) pair, summing every Daily Data Entry submission in that
- * week for that factory across the Allocated Actual, Absenteeism, Present
+ * week for that factory across the Allocated Current, Absenteeism, Present
  * and Training Center carder tables. Weekly View has no data of its own -
  * it's a read-only aggregate of Daily Entry (see the Dashboard's own
  * description), so a week/factory with no daily entries yet just reports
@@ -34,7 +34,7 @@ async function getWeeklyCadreView({ factoryId, weekId } = {}) {
   const [weeks, factories, allocated, absenteeism, present, trainingCenters] = await Promise.all([
     Week.findAll({ attributes: ["id", "week"] }),
     Factory.findAll({ attributes: ["id", "factoryName"] }),
-    AllocatedActualCarder.findAll({ where }),
+    AllocatedCurrentCarder.findAll({ where }),
     AbsenteeismCarder.findAll({ where }),
     PresentCarder.findAll({ where }),
     TrainingCenter.findAll({ where }),
@@ -123,7 +123,7 @@ async function getWeeklyStatusReport({ from, to, factoryId } = {}) {
   const where = { date: { [Op.between]: [from, to] } };
   if (factoryId) where.factoryId = factoryId;
 
-  const allocated = await AllocatedActualCarder.findAll({ where });
+  const allocated = await AllocatedCurrentCarder.findAll({ where });
   // Pick each (factory, week)'s first entry - earliest date, then latest createdAt.
   const firstByWeek = new Map();
   allocated.forEach((r) => {
