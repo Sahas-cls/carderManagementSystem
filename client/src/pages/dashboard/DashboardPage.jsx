@@ -21,8 +21,8 @@ import {
 const CURRENT_YEAR = new Date().getFullYear();
 // At least the past 5 years, per the Administrator's "historical insight" requirement.
 const YEAR_OPTIONS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
-// Month filter for the month-snapshot cards (Cadre Fulfilment + the LTO
-// breakdown donuts) - this month plus the 11 before it (a rolling 12 months),
+// Month filter for the month-snapshot card (Cadre Fulfilment) -
+// this month plus the 11 before it (a rolling 12 months),
 // newest first, crossing into last year when needed. Independent of the Year
 // selector above, which keeps driving the year-long trend charts.
 const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => {
@@ -165,8 +165,7 @@ export default function DashboardPage() {
   // category on its own.
   const { analysis: reasonAnalysis } = useReasonAnalysis({
     factoryId: effectiveFactoryId,
-    year: selectedPeriod.year,
-    month: selectedPeriod.month,
+    year: selectedYear,
   });
   const reasonData = useMemo(
     () =>
@@ -186,8 +185,7 @@ export default function DashboardPage() {
   // existed, or left blank) gets the neutral OTHER_COLOR, like "Other" above.
   const { analysis: civilStatusAnalysis } = useCivilStatusAnalysis({
     factoryId: effectiveFactoryId,
-    year: selectedPeriod.year,
-    month: selectedPeriod.month,
+    year: selectedYear,
   });
   const civilStatusData = useMemo(
     () =>
@@ -206,8 +204,7 @@ export default function DashboardPage() {
   // into "Other" (neutral color), same as reasonData above.
   const { analysis: sectionAnalysis } = useSectionAnalysis({
     factoryId: effectiveFactoryId,
-    year: selectedPeriod.year,
-    month: selectedPeriod.month,
+    year: selectedYear,
   });
   const sectionData = useMemo(
     () =>
@@ -227,8 +224,7 @@ export default function DashboardPage() {
   // OTHER_COLOR; the age bands keep a fixed color each in band order.
   const { analysis: ageAnalysis } = useAgeAnalysis({
     factoryId: effectiveFactoryId,
-    year: selectedPeriod.year,
-    month: selectedPeriod.month,
+    year: selectedYear,
   });
   const ageData = useMemo(
     () =>
@@ -371,7 +367,6 @@ export default function DashboardPage() {
     ];
   }, [fulfilmentTotals]);
   const scopeAndYear = `${scopeLabel} • ${selectedYear}`;
-  const scopeAndMonth = `${scopeLabel} • ${selectedPeriod.label}`;
 
   return (
     <div>
@@ -406,7 +401,7 @@ export default function DashboardPage() {
           <select
             value={selectedMonthKey}
             onChange={(e) => setSelectedMonthKey(e.target.value)}
-            title="Month for Cadre Fulfilment and the monthly LTO breakdowns"
+            title="Month for Cadre Fulfilment"
             className="h-9 px-3 text-xs font-semibold border border-app-border rounded-md bg-white text-app-text focus:outline-none focus:ring-2 focus:ring-sky-100 focus:border-teal"
           >
             {MONTH_OPTIONS.map((m) => (
@@ -581,7 +576,7 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <SectionHeading title="Monthly LTO Breakdown" context={scopeAndMonth} />
+      <SectionHeading title="Yearly LTO Breakdown" context={scopeAndYear} />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {canShowScoped ? (
           <>
