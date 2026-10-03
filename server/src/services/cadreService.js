@@ -95,7 +95,7 @@ async function getWeeklyCadreView({ factoryId, weekId } = {}) {
 
   trainingCenters.forEach((r) => {
     const row = getRow(r.weekId, r.factoryId);
-    row.tca += r.allocated;
+    row.tca += r.actualAllocated;
     row.tcab += r.absent;
     row.tcpresent += r.present;
   });
@@ -177,7 +177,7 @@ async function getWeeklyStatusReport({ from, to, factoryId } = {}) {
         allocatedTMO: r.TMO ?? 0,
         absentMO: absent?.MO ?? 0,
         absentTMO: absent?.TMO ?? 0,
-        tcAllocated: tc?.allocated ?? 0,
+        tcAllocated: tc?.actualAllocated ?? 0,
         tcAbsent: tc?.absent ?? 0,
       };
     })
