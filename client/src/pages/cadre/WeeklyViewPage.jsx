@@ -19,7 +19,7 @@ import ReportDateRangeModal from "./components/ReportDateRangeModal";
 /**
  * Read-only: Weekly View has no data of its own, it's a live aggregate of
  * Daily Data Entry (each week+factory's numbers are the sum of every daily
- * submission for that week). Add or correct numbers via Daily Data Entry.
+ * submission for that week). Add or correct numbers via Daily Dfata Entry.
  */
 export default function WeeklyViewPage() {
   const navigate = useNavigate();
