@@ -31,6 +31,11 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "resignationReasonId",
         as: "resignationReason",
       });
+      // Every exit event (resign/transfer) for this employee - see EmployeeExit.
+      Employee.hasMany(models.EmployeeExit, {
+        foreignKey: "employeeId",
+        as: "exits",
+      });
     }
   }
   Employee.init(
