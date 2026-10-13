@@ -15,19 +15,165 @@ const {
 } = require("../../models");
 const ApiError = require("../utils/ApiError");
 
+const exitType = (isTransfer) => (isTransfer ? "transfer" : "resign");
+
 /**
- * Phase-2 dual-write: mirrors an Employee's current exit onto employeeexits
- * (one row per exit event, see EmployeeExit) alongside the legacy
- * batchId/dateOfResign fields, which stay the source of truth for reads
- * until those are switched over. An event is "active" while it hasn't been
- * rejoined (rejoinedBatchId null); re-saving the same entry updates its
- * active event (or relinks one a previous save orphaned with batchId null)
- * instead of piling up duplicates. Runs inside the caller's transaction, so
- * a failure here rolls the whole save back rather than letting the two
- * tables drift apart silently.
+ * An employee's exit events that are still standing (not rejoined), newest
+ * exit first. Several can be active at once - e.g. a transfer on one daily
+ * entry and a later resignation on another - which is exactly what the single
+ * batchId/dateOfResign pair on Employee could not express.
+ */
+function findActiveExits(employeeId, transaction) {
+  return EmployeeExit.findAll({
+    where: { employeeId, rejoinedBatchId: null },
+    order: [
+      ["dateOfExit", "DESC"],
+      ["id", "DESC"],
+    ],
+    transaction,
+  });
+}
+
+/**
+ * Keeps the legacy exit columns on Employee (batchId, isMo, isTransfer,
+ * promotedToMo, dateOfResign, resignationReasonId, newDesignationId and the
+ * rejoin fields) in step with the exit events, as a summary of the CURRENT
+ * exit - the latest active event. Manage Employees, the unlinked-employees
+ * list and the like still read those columns; employeeexits is the source of
+ * truth and this is derived from it after every event change.
+ *   - active event, linked to an entry: that event's details.
+ *   - active event whose entry link was trimmed/deleted (batchId null): the
+ *     exit stays on file but isMo/isTransfer/promotedToMo are cleared, same as
+ *     the old "unlinked" state.
+ *   - no active event but a rejoined one: the active-employee state, with the
+ *     latest rejoin recorded.
+ *   - no events at all: left alone (e.g. a Date of Resign typed straight into
+ *     Manage Employees).
+ */
+async function refreshLegacyExit(employeeId, transaction) {
+  const employee = await Employee.findByPk(employeeId, { transaction });
+  if (!employee) return;
+  const [current] = await findActiveExits(employeeId, transaction);
+  if (current) {
+    const linked = !!current.batchId;
+    const isTransfer = current.type === "transfer";
+    await employee.update(
+      {
+        dateOfResign: current.dateOfExit,
+        resignationReasonId: current.resignationReasonId,
+        newDesignationId: current.newDesignationId,
+        batchId: current.batchId,
+        isMo: linked ? current.isMo : null,
+        isTransfer: linked ? isTransfer : null,
+        promotedToMo: linked && isTransfer ? current.promotedToMo : null,
+        rejoinedBatchId: null,
+        rejoinedIsMo: null,
+      },
+      { transaction },
+    );
+    return;
+  }
+  const rejoined = await EmployeeExit.findOne({
+    where: { employeeId, rejoinedBatchId: { [Op.ne]: null } },
+    order: [
+      ["updatedAt", "DESC"],
+      ["id", "DESC"],
+    ],
+    transaction,
+  });
+  if (!rejoined) return;
+  await employee.update(
+    {
+      dateOfResign: null,
+      resignationReasonId: null,
+      newDesignationId: null,
+      batchId: null,
+      isMo: null,
+      isTransfer: null,
+      promotedToMo: null,
+      dateOfRejoin: rejoined.dateOfRejoin,
+      rejoinedBatchId: rejoined.rejoinedBatchId,
+      rejoinedIsMo: rejoined.rejoinedIsMo,
+    },
+    { transaction },
+  );
+}
+
+/** " on the <factory> daily entry dated <date>" for the 409 messages below. */
+async function describeBatch(batchId, transaction) {
+  const other = await PlannedCarder.findOne({
+    where: { batchId },
+    include: [{ model: Factory, as: "factory", attributes: ["factoryName"] }],
+    transaction,
+  });
+  return other
+    ? ` on the ${other.factory?.factoryName ? `${other.factory.factoryName} ` : ""}daily entry dated ${other.date}`
+    : " on another daily entry";
+}
+
+/**
+ * Refuses an exit that can't make sense next to the employee's other active
+ * exits (orphaned ones - batchId null, not on any entry - don't count):
+ *   - a resignation/termination ends the road: nothing else can be recorded
+ *     for them on a different entry until they're rejoined. This is also what
+ *     catches the same EPF being entered twice by mistake.
+ *   - after a transfer, a later resignation is fine (the case this table
+ *     exists for) and so is a later transfer (e.g. a second promotion), but
+ *     each must be dated after the transfer it follows - an earlier or
+ *     same-day one on a different entry is a duplicate or a typo.
+ *   - the same employee can't sit on one entry as both a transfer and a
+ *     resignation: the per-employee Delete/Rejoin routes only know (batch, epf).
+ */
+async function assertCanRecordExit(employee, batchId, isTransfer, dateOfExit, transaction) {
+  const type = exitType(isTransfer);
+  const active = await findActiveExits(employee.id, transaction);
+  // Re-saving an entry resubmits the exits it already holds - e.g. fixing a
+  // count on the older entry after the employee has since resigned on a later
+  // one. That's not a new exit, so there's nothing to validate.
+  if (active.some((ev) => ev.batchId === batchId && ev.type === type)) return;
+  for (const ev of active) {
+    if (!ev.batchId) continue;
+    if (ev.batchId === batchId) {
+      if (ev.type !== type) {
+        throw new ApiError(
+          409,
+          `EPF ${employee.epf} (${employee.employeeName}) is already on this daily entry as ${
+            ev.type === "transfer" ? "transferred" : "resigned"
+          }. Remove them from that tile first.`,
+        );
+      }
+      continue;
+    }
+    const evIsResign = ev.type === "resign";
+    // Same EPF resigned twice, or a transfer/second exit dated on or after a
+    // resignation (they'd already left), or a resignation dated on or before
+    // a transfer it supposedly follows, or the same transfer entered twice.
+    const conflict = evIsResign
+      ? !isTransfer || dateOfExit >= ev.dateOfExit
+      : isTransfer
+        ? dateOfExit === ev.dateOfExit
+        : dateOfExit <= ev.dateOfExit;
+    if (!conflict) continue;
+    const where = await describeBatch(ev.batchId, transaction);
+    const what = evIsResign ? "resigned" : "transferred";
+    const hint = evIsResign
+      ? "Remove them from that entry first (or rejoin them), or check the EPF No."
+      : "A resignation must be dated after a transfer it follows, and the same transfer can't be entered twice - check the date and EPF No., or remove them from that entry first.";
+    throw new ApiError(
+      409,
+      `EPF ${employee.epf} (${employee.employeeName}) is already recorded as ${what}${where} (${ev.dateOfExit}). ${hint}`,
+    );
+  }
+}
+
+/**
+ * Upserts the exit event for one employee on one entry. Re-saving the same
+ * entry updates its standing event; one a previous save orphaned (batchId
+ * null) is relinked rather than a second created. Runs inside the caller's
+ * transaction, so a failure rolls the whole save back.
  */
 async function recordExit(employeeId, batchId, isTransfer, fields, transaction) {
-  const type = isTransfer ? "transfer" : "resign";
+  const type = exitType(isTransfer);
   const values = {
     batchId,
     type,
@@ -38,11 +184,10 @@ async function recordExit(employeeId, batchId, isTransfer, fields, transaction) 
     promotedToMo: fields.promotedToMo ?? null,
     needsReview: false,
   };
-  const active = await EmployeeExit.findOne({
-    where: { employeeId, type, rejoinedBatchId: null, batchId: { [Op.or]: [batchId, null] } },
-    order: [["id", "DESC"]],
-    transaction,
-  });
+  const standing = { employeeId, type, rejoinedBatchId: null };
+  const active =
+    (await EmployeeExit.findOne({ where: { ...standing, batchId }, order: [["id", "DESC"]], transaction })) ||
+    (await EmployeeExit.findOne({ where: { ...standing, batchId: null }, order: [["id", "DESC"]], transaction }));
   if (active) await active.update(values, { transaction });
   else await EmployeeExit.create({ employeeId, ...values }, { transaction });
 }
@@ -50,47 +195,45 @@ async function recordExit(employeeId, batchId, isTransfer, fields, transaction) 
 /**
  * Creates/updates the Employee rows for the Resigned/Transfer Employee popup
  * on the Daily Data Entry form (see CadreDetailsCard.jsx's
- * ResignedEmployeesModal) and links them to this daily entry's batch.
+ * ResignedEmployeesModal) and records each one's exit event against this
+ * daily entry's batch.
  * `isTransfer` tags which of the two tiles this call is syncing for (false =
  * Resigned/Terminated, true = Transfer) - dailyCadreService.performUpdate
- * calls this once per tile for the same batch, so the unlink step below is
- * scoped to rows of that same type only: an employee of the OTHER type still
- * linked to this batch must not be touched by this call.
+ * calls this once per tile for the same batch, so the trim step below is
+ * scoped to events of that same type only: an employee of the OTHER type still
+ * on this batch must not be touched by this call.
  *
  * `epf` is upserted rather than always inserted: epf is unique on Employee,
  * and re-saving the same daily entry (edit) resubmits the same rows, so an
  * insert-only approach would collide on epf. Any employee of this type
- * previously linked to this batch but no longer present in `employees` is
- * unlinked (batchId/isMo/isTransfer cleared) rather than deleted - the
+ * previously on this batch but no longer present in `employees` is
+ * detached from it (the event's batchId cleared) rather than deleted - the
  * employee record itself is real master data (their exit happened), only
  * its tie to this particular entry is undone.
+ *
+ * An employee may already have exits on OTHER entries - see
+ * assertCanRecordExit for what's allowed.
  */
 async function syncResignedEmployees(employees, batchId, transaction, isTransfer = false) {
   const list = Array.isArray(employees) ? employees : [];
+  const touched = new Set();
 
   for (const emp of list) {
-    const fields = {
-      employeeName: emp.employeeName,
-      designationId: emp.designationId,
-      // Only meaningful for a Transfer-tile row - the designation they're
-      // moving into. Ignored/null for Resigned/Terminated rows.
+    const exitFields = {
       newDesignationId: isTransfer ? emp.newDesignationId ?? null : null,
-      departmentId: emp.departmentId,
-      sectionId: emp.sectionId,
       dateOfResign: emp.dateOfResign,
       resignationReasonId: emp.resignationReasonId ?? null,
-      batchId,
       isMo: emp.isMo,
-      isTransfer,
-      // They're resigning/transferring again - whatever they'd previously
-      // rejoined into is stale now, same idea as isMo/isTransfer being
-      // cleared on the other side (rejoinEmployee below).
-      rejoinedBatchId: null,
-      rejoinedIsMo: null,
       // Only meaningful for a Transfer-tile row (isTransfer: true) that was
       // originally TMO - whether they're staying (promoted to MO) or
       // leaving. Ignored/null for Resigned/Terminated rows.
       promotedToMo: isTransfer ? !!emp.promotedToMo : null,
+    };
+    const fields = {
+      employeeName: emp.employeeName,
+      designationId: emp.designationId,
+      departmentId: emp.departmentId,
+      sectionId: emp.sectionId,
     };
     // Transfer doesn't collect Date of Joining (see ResignedEmployeesModal) -
     // leave a real existing employee's join date alone rather than having it
@@ -108,30 +251,16 @@ async function syncResignedEmployees(employees, batchId, transaction, isTransfer
     // cleaned-up unlinked employee), so a returning epf must revive that row
     // rather than insert a second one and hit the unique index.
     const existing = await Employee.findOne({ where: { epf: emp.epf }, paranoid: false, transaction });
-    // Already resigned/transferred on a DIFFERENT daily entry - upserting
-    // would silently move them off that entry (its count would no longer
-    // match the employees linked to it), so refuse instead. Employees on
-    // this same batch, unlinked ones (batchId null - e.g. rejoined, trimmed
-    // off, or their entry was deleted) and soft-deleted ones are fine.
-    if (existing && !existing.deletedAt && existing.batchId && existing.batchId !== batchId) {
-      const other = await PlannedCarder.findOne({
-        where: { batchId: existing.batchId },
-        include: [{ model: Factory, as: "factory", attributes: ["factoryName"] }],
-        transaction,
-      });
-      const where = other
-        ? ` on the ${other.factory?.factoryName ? `${other.factory.factoryName} ` : ""}daily entry dated ${other.date}`
-        : " on another daily entry";
-      throw new ApiError(
-        409,
-        `EPF ${emp.epf} (${existing.employeeName}) is already recorded as ${
-          existing.isTransfer ? "transferred" : "resigned"
-        }${where}. Remove them from that entry first, or check the EPF No.`,
-      );
+    if (existing && !existing.deletedAt) {
+      await assertCanRecordExit(existing, batchId, isTransfer, emp.dateOfResign, transaction);
     }
     let employee;
     if (existing) {
-      if (existing.deletedAt) await existing.restore({ transaction });
+      if (existing.deletedAt) {
+        await existing.restore({ transaction });
+        // Whatever exits it carried belong to the record that was cleaned up.
+        await EmployeeExit.destroy({ where: { employeeId: existing.id }, transaction });
+      }
       employee = await existing.update(fields, { transaction });
     } else {
       employee = await Employee.create(
@@ -139,68 +268,73 @@ async function syncResignedEmployees(employees, batchId, transaction, isTransfer
         { transaction },
       );
     }
-    await recordExit(employee.id, batchId, isTransfer, fields, transaction);
+    await recordExit(employee.id, batchId, isTransfer, exitFields, transaction);
+    touched.add(employee.id);
   }
 
   const currentEpfs = list.map((emp) => emp.epf);
-  const unlinkWhere = { batchId, isTransfer };
-  if (currentEpfs.length) {
-    unlinkWhere.epf = { [Op.notIn]: currentEpfs };
-  }
-  // Same trim on the event side: events on this batch/type for employees no
-  // longer in the list are orphaned (batchId null), mirroring the unlink below.
-  const trimmed = await Employee.findAll({ where: unlinkWhere, attributes: ["id"], transaction });
+  const employeeWhere = currentEpfs.length ? { epf: { [Op.notIn]: currentEpfs } } : undefined;
+  const trimmed = await findExits(
+    { batchId, type: exitType(isTransfer), rejoinedBatchId: null },
+    { transaction, employeeWhere },
+  );
   if (trimmed.length) {
     await EmployeeExit.update(
       { batchId: null },
-      {
-        where: {
-          batchId,
-          type: isTransfer ? "transfer" : "resign",
-          rejoinedBatchId: null,
-          employeeId: { [Op.in]: trimmed.map((e) => e.id) },
-        },
-        transaction,
-      },
+      { where: { id: { [Op.in]: trimmed.map((ev) => ev.id) } }, transaction },
     );
+    trimmed.forEach((ev) => touched.add(ev.employeeId));
   }
-  await Employee.update(
-    { batchId: null, isMo: null, isTransfer: null, promotedToMo: null },
-    { where: unlinkWhere, transaction },
-  );
+
+  for (const employeeId of touched) await refreshLegacyExit(employeeId, transaction);
 }
 
 /**
- * Permanently deletes one resigned/transferred employee (a real hard delete,
- * unlike syncResignedEmployees' unlink-only trimming above) - backs the
+ * Removes one resigned/transferred employee from an entry - backs the
  * per-employee Delete button in ResignedEmployeesModal.jsx. Scoped to the
- * batch the employee is currently linked to, so a stray epf can't delete
- * unrelated master data via this route. Returns the deleted row's isMo (true
- * = MO, false = TMO) and isTransfer (true = Transfer tile, false = Resigned/
- * Terminated tile) so the caller can decrement the right tile's count;
- * throws 404 if that epf isn't currently linked to this batch (e.g. it was
+ * batch the employee is currently on, so a stray epf can't delete unrelated
+ * master data via this route. An employee with no other exit history is
+ * hard-deleted outright, as before (their events go with them via the FK
+ * cascade); one who also has other exits (e.g. an earlier transfer) keeps
+ * their record and only loses this event. Returns the removed event's isMo
+ * (true = MO, false = TMO) and isTransfer (true = Transfer tile, false =
+ * Resigned/Terminated tile) so the caller can decrement the right tile's
+ * count; throws 404 if that epf isn't currently on this batch (e.g. it was
  * only added to the form this session and never actually saved yet).
  */
 async function deleteResignedEmployee(epf, batchId, transaction) {
-  const employee = await Employee.findOne({ where: { epf, batchId }, transaction });
-  if (!employee) {
+  const [exit] = await findExits(
+    { batchId, rejoinedBatchId: null },
+    { transaction, employeeWhere: { epf }, limit: 1 },
+  );
+  if (!exit) {
     throw new ApiError(404, `Employee ${epf} is not on record ${batchId}.`);
   }
-  const { isMo, isTransfer } = employee;
-  // Employee is a paranoid model (soft-delete by default: destroy() just
-  // sets deletedAt and the row stays in the table, invisible only to
-  // Sequelize's own default queries). force:true here issues a real SQL
-  // DELETE so the row is actually gone from the database, matching what
-  // this button promises the user.
-  await employee.destroy({ transaction, force: true });
+  const { isMo } = exit;
+  const isTransfer = exit.type === "transfer";
+  const otherExits = await EmployeeExit.count({
+    where: { employeeId: exit.employeeId, id: { [Op.ne]: exit.id } },
+    transaction,
+  });
+  if (otherExits) {
+    await exit.destroy({ transaction });
+    await refreshLegacyExit(exit.employeeId, transaction);
+  } else {
+    // Employee is a paranoid model (soft-delete by default: destroy() just
+    // sets deletedAt and the row stays in the table, invisible only to
+    // Sequelize's own default queries). force:true here issues a real SQL
+    // DELETE so the row is actually gone from the database, matching what
+    // this button promises the user.
+    await exit.employee.destroy({ transaction, force: true });
+  }
   return { epf, isMo, isTransfer };
 }
 
 /**
- * Read-only peek at an employee currently linked to a batch - lets a caller
+ * Read-only peek at an employee currently on a batch - lets a caller
  * inspect isTransfer/dateOfResign (e.g. to decide whether a Rejoined Date is
  * required, and validate it) before committing to rejoinEmployee's mutation
- * below. Returns null rather than throwing if the epf isn't linked to this
+ * below. Returns null rather than throwing if the epf isn't on this
  * batch, so the caller can shape its own 404 message.
  */
 async function findLinkedEmployee(epf, batchId, transaction) {
@@ -213,84 +347,56 @@ async function findLinkedEmployee(epf, batchId, transaction) {
 
 /**
  * Reactivates one resigned/transferred employee - the "Rejoin" counterpart
- * to deleteResignedEmployee above. Instead of hard-deleting the Employee
- * row, clears its exit fields (dateOfResign, resignationReasonId,
- * newDesignationId) and unlinks it from the batch (batchId/isMo/
- * isTransfer), so the employee is active again and reappears as ordinary
- * employee master data. `rejoinDate` (Resigned/Terminated only - the
- * Transfer tile doesn't ask for one) is stored on dateOfRejoin, overwriting
- * whatever was there before. `rejoinedBatchId` ties them to whichever batch
- * actually got the Rejoined credit (see dailyCadreService.rejoinResignedEmployee)
- * - rejoinedIsMo is recorded alongside it since isMo itself is being cleared
- * here. Returns the row's isMo and isTransfer as they were before being
- * cleared, so the caller can decrement the right tile (Resigned or Transfer)
- * and increment Rejoined by the right type; throws 404 if that epf isn't
- * currently linked to this batch.
+ * to deleteResignedEmployee above. The exit event is kept as history and
+ * marked rejoined (it no longer counts as a standing exit), and the employee's
+ * summary columns fall back to whatever other exit they still have, or to
+ * plain active-employee master data (see refreshLegacyExit). `rejoinDate`
+ * (Resigned/Terminated only - the Transfer tile doesn't ask for one) is
+ * stored on dateOfRejoin. `rejoinedBatchId` ties them to whichever batch
+ * actually got the Rejoined credit (see dailyCadreService.rejoinResignedEmployee),
+ * with rejoinedIsMo recorded alongside it. Returns the event's isMo and
+ * isTransfer so the caller can decrement the right tile (Resigned or
+ * Transfer) and increment Rejoined by the right type; throws 404 if that epf
+ * isn't currently on this batch.
  */
 async function rejoinEmployee(epf, batchId, transaction, { rejoinDate = null, rejoinedBatchId = null } = {}) {
-  const employee = await Employee.findOne({ where: { epf, batchId }, transaction });
-  if (!employee) {
+  const [exit] = await findExits(
+    { batchId, rejoinedBatchId: null },
+    { transaction, employeeWhere: { epf }, limit: 1 },
+  );
+  if (!exit) {
     throw new ApiError(404, `Employee ${epf} is not on record ${batchId}.`);
   }
-  const { isMo, isTransfer } = employee;
-  await employee.update(
+  const { isMo } = exit;
+  const isTransfer = exit.type === "transfer";
+  // rejoinedBatchId is what marks an event rejoined, so it must never stay
+  // null here - default to the batch it was recorded on.
+  await exit.update(
     {
-      dateOfResign: null,
-      resignationReasonId: null,
-      newDesignationId: null,
-      batchId: null,
-      isMo: null,
-      isTransfer: null,
-      promotedToMo: null,
       dateOfRejoin: rejoinDate || null,
-      rejoinedBatchId: rejoinedBatchId || null,
-      rejoinedIsMo: rejoinedBatchId ? isMo : null,
+      rejoinedBatchId: rejoinedBatchId || batchId,
+      rejoinedIsMo: isMo,
     },
     { transaction },
   );
-  // Mirror onto the exit event: keep it (and its batchId) as history, just
-  // mark it rejoined. rejoinedBatchId is always set here (the batch that got
-  // the Rejoined credit), which is what makes an event "no longer active".
-  await EmployeeExit.update(
-    {
-      dateOfRejoin: rejoinDate || null,
-      rejoinedBatchId: rejoinedBatchId || null,
-      rejoinedIsMo: rejoinedBatchId ? isMo : null,
-    },
-    {
-      where: {
-        employeeId: employee.id,
-        batchId,
-        type: isTransfer ? "transfer" : "resign",
-        rejoinedBatchId: null,
-      },
-      transaction,
-    },
-  );
+  await refreshLegacyExit(exit.employeeId, transaction);
   return { epf, isMo, isTransfer };
 }
 
 /**
- * Unlinks every employee tied to a batch (used when the daily entry itself
- * is deleted) - doesn't delete the employee record. Clears both directions:
- * employees resigned/transferred INTO this batch (batchId), and employees
- * rejoined-credited to this batch (rejoinedBatchId) - the batch is gone
- * either way, so neither link should dangle.
+ * Detaches every exit event tied to a batch (used when the daily entry
+ * itself is deleted) - doesn't delete the employee or their history. The
+ * events stay, with batchId cleared, so the exits remain on file as
+ * unlinked. A rejoin credited to this batch keeps its rejoinedBatchId:
+ * clearing it would make an already-rejoined event look standing again.
  */
 async function unlinkBatch(batchId, transaction) {
-  await Employee.update(
-    { batchId: null, isMo: null, isTransfer: null, promotedToMo: null },
-    { where: { batchId }, transaction },
-  );
-  await Employee.update(
-    { rejoinedBatchId: null, rejoinedIsMo: null },
-    { where: { rejoinedBatchId: batchId }, transaction },
-  );
-  // Same for the exit events' batch link. rejoinedBatchId is deliberately
-  // left alone here: clearing it would make an already-rejoined event look
-  // active again (see recordExit), unlike on Employee where a rejoined row
-  // carries no exit at all.
+  const exits = await EmployeeExit.findAll({ where: { batchId }, attributes: ["id", "employeeId"], transaction });
+  if (!exits.length) return;
   await EmployeeExit.update({ batchId: null }, { where: { batchId }, transaction });
+  for (const employeeId of new Set(exits.map((ev) => ev.employeeId))) {
+    await refreshLegacyExit(employeeId, transaction);
+  }
 }
 
 /**
@@ -819,7 +925,12 @@ async function updateEmployeeRecord(id, fields, { factoryId } = {}) {
  */
 async function deleteEmployeeRecord(id) {
   const employee = await getEmployeeOr404(id);
-  if (employee.batchId) {
+  // Any standing exit still on a daily entry (not just the current one the
+  // summary columns show) - deleting the employee would take its events with it.
+  const onEntry = await EmployeeExit.count({
+    where: { employeeId: employee.id, rejoinedBatchId: null, batchId: { [Op.ne]: null } },
+  });
+  if (onEntry) {
     throw new ApiError(
       409,
       "This employee is linked to a resigned-employee record on a Daily Data Entry and can't be deleted here. Remove them from that entry first.",
