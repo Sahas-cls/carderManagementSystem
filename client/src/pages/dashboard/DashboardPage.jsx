@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card";
 import StatCard from "../../components/ui/StatCard";
 import useAuth from "../../hooks/useAuth";
@@ -9,6 +9,7 @@ import useReasonAnalysis from "../../hooks/useReasonAnalysis";
 import useCivilStatusAnalysis from "../../hooks/useCivilStatusAnalysis";
 import useSectionAnalysis from "../../hooks/useSectionAnalysis";
 import useAgeAnalysis from "../../hooks/useAgeAnalysis";
+import { getPreviousDailyRecord } from "../../services/dailyCadreServices";
 import TrendAreaChart from "../../components/charts/TrendAreaChart";
 import DonutChart from "../../components/charts/DonutChart";
 import {
@@ -316,12 +317,66 @@ export default function DashboardPage() {
   }, [trendMonths, ltoData, absenteeismData]);
 
   // "Right now" snapshot (current month's latest record per factory, within
-  // the current scope) - behind the Current Headcount / Budget Fulfilment
+  // the current scope, or its last earlier record if none yet this month) - behind the Current Headcount / Budget Fulfilment
   // KPI tiles, which always describe today regardless of the Month filter.
-  const scopedLatestByFactory = useMemo(
+  const currentMonthLatest = useMemo(
     () => latestPerFactory(records, effectiveFactoryId),
     [records, effectiveFactoryId],
   );
+
+  // Factories in scope that haven't logged anything yet this month (e.g.
+  // early in the month) would otherwise count as 0 - for those, fall back to
+  // their most recent record from before this month (see
+  // dailyCadreService.getPreviousDailyRecord), whenever that was.
+  const missingFactoryIds = useMemo(() => {
+    const inScope = effectiveFactoryId
+      ? [effectiveFactoryId]
+      : factories.map((f) => f.id);
+    const have = new Set(currentMonthLatest.map((r) => String(r.factoryId)));
+    return inScope.filter((id) => !have.has(String(id)));
+  }, [factories, effectiveFactoryId, currentMonthLatest]);
+  const missingKey = missingFactoryIds.join(",");
+
+  const [fallbackRows, setFallbackRows] = useState([]);
+  useEffect(() => {
+    if (!missingFactoryIds.length) return undefined;
+    let cancelled = false;
+    const monthStart = `${MONTH_OPTIONS[0].key}-01`;
+    Promise.all(
+      missingFactoryIds.map((factoryId) =>
+        getPreviousDailyRecord({ factoryId, date: monthStart })
+          .then((prev) =>
+            prev
+              ? {
+                  factoryId,
+                  date: prev.date,
+                  cmo: prev.currentMO,
+                  ctmo: prev.currentTMO,
+                  pt: prev.plannedTotal,
+                }
+              : null,
+          )
+          .catch(() => null),
+      ),
+    ).then((rows) => {
+      if (!cancelled) setFallbackRows(rows.filter(Boolean));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // missingKey stands in for missingFactoryIds (a fresh array each render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missingKey]);
+
+  const scopedLatestByFactory = useMemo(() => {
+    const missing = new Set(missingFactoryIds.map(String));
+    return [
+      ...currentMonthLatest,
+      // Only rows still missing - drops stale fallbacks while a refetch for
+      // a new scope is in flight.
+      ...fallbackRows.filter((r) => missing.has(String(r.factoryId))),
+    ];
+  }, [currentMonthLatest, fallbackRows, missingFactoryIds]);
 
   const currentHeadcount = useMemo(
     () =>

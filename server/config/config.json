@@ -2,7 +2,7 @@
   "development": {
     "username": "root",
     "password": null,
-    "database": "cadre_management_sys3",
+    "database": "cadre_management_sys5",
     "host": "127.0.0.1",
     "dialect": "mysql"
   },

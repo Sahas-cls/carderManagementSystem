@@ -372,6 +372,8 @@ async function assertFactoryExists(factoryId, transaction) {
  * (see DailyEntryPage.jsx's prefill effect):
  *  - Allocated_Actual MO/TMO default to that batch's Allocated_Current MO/TMO.
  *  - Training Center's Allocated defaults to that batch's Actual Allocated.
+ * Also backs the Dashboard's "right now" KPI tiles for a factory that
+ * hasn't logged anything yet this month (see DashboardPage.jsx).
  * PlannedCarder is queried first (every batch has exactly one row there) so
  * both other tables are read from that one canonical batchId, rather than
  * each independently picking "latest date" and risking two different
@@ -381,6 +383,9 @@ async function getPreviousDailyRecord({ factoryId, beforeDate }) {
   const latestBatch = await PlannedCarder.findOne({
     where: { factoryId, date: { [Op.lt]: beforeDate } },
     order: [["date", "DESC"], ["createdAt", "DESC"]],
+    // Budgets are soft-deleted (paranoid) - see listDailyRecords for why
+    // this include bypasses that default.
+    include: [{ model: Budget, as: "budget", paranoid: false }],
   });
   if (!latestBatch) return null;
 
@@ -394,6 +399,9 @@ async function getPreviousDailyRecord({ factoryId, beforeDate }) {
     currentMO: currentRow?.MO ?? 0,
     currentTMO: currentRow?.TMO ?? 0,
     tcActual: tcRow?.actualAllocated ?? 0,
+    // That batch's Budget (Planned MO+TMO) - lets the Dashboard's Budget
+    // Fulfilment tile fall back to this batch alongside its headcount.
+    plannedTotal: (latestBatch.budget?.moCount ?? 0) + (latestBatch.budget?.tmoCount ?? 0),
   };
 }
 

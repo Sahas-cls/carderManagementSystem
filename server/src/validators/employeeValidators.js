@@ -45,7 +45,8 @@ const MAX_PAGE_SIZE = 100;
  * Validates the Employee Master list query: ?search= (partial EPF match),
  * ?factoryId= (Administrator/SuperUser's factory filter - the User role is
  * always pinned to its own factory instead, see employeeController),
- * ?page= (1-based) and ?pageSize= (capped at MAX_PAGE_SIZE).
+ * ?page= (1-based), ?pageSize= (capped at MAX_PAGE_SIZE) and ?incomplete=true
+ * (only employees still missing a Date of Birth or Civil Status).
  */
 function validateEmployeeListQuery(req, res, next) {
   try {
@@ -56,6 +57,7 @@ function validateEmployeeListQuery(req, res, next) {
       factoryId: parseOptionalId(req.query.factoryId, "factoryId") || undefined,
       page: parseOptionalId(req.query.page, "page") || 1,
       pageSize: pageSize ? Math.min(pageSize, MAX_PAGE_SIZE) : undefined,
+      incomplete: req.query.incomplete === "true",
     };
     next();
   } catch (err) {

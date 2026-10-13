@@ -48,6 +48,13 @@ function validateExitEmployees(rows, mo, tmo, label, isTransfer = false) {
     ? [...EXIT_EMPLOYEE_FIELDS.filter((f) => f !== "dateOfJoin"), "newDesignationId"]
     : EXIT_EMPLOYEE_FIELDS;
 
+  // Rows that already carry their own MO/TMO (saved rows, or the popup's
+  // own tagging) keep it as long as it adds up to the submitted counts -
+  // otherwise fall back to the positional split (first `mo` rows are MO).
+  const keepOwnIsMo =
+    list.every((row) => typeof row?.isMo === "boolean") &&
+    list.filter((row) => row.isMo).length === mo;
+
   return list.map((row, i) => {
     const parsed = {};
     fields.forEach((field) => {
@@ -94,7 +101,7 @@ function validateExitEmployees(rows, mo, tmo, label, isTransfer = false) {
 
     parsed.epf = String(parsed.epf).trim();
     parsed.employeeName = String(parsed.employeeName).trim();
-    parsed.isMo = i < mo;
+    parsed.isMo = keepOwnIsMo ? row.isMo : i < mo;
     // Only meaningful for a Transfer row that was originally TMO (isMo:
     // false) - whether they're an internal promotion (stays, reclassified
     // MO) or leaving this carder entirely. Ignored for Resigned/Terminated
@@ -173,6 +180,19 @@ function validateDailyRecordBody(req, res, next) {
       "transfer employee",
       true
     );
+    // The same EPF twice (within one tile, or across Resigned + Transfer)
+    // would upsert into a single Employee row, leaving one tile short of
+    // the employees its count says it has.
+    const seenEpfs = new Set();
+    [...parsed.resignedEmployees, ...parsed.transferEmployees].forEach((emp) => {
+      if (seenEpfs.has(emp.epf)) {
+        throw new ApiError(
+          400,
+          `EPF ${emp.epf} is entered more than once (Resigned/Transfer) - each employee can only be recorded once per entry.`
+        );
+      }
+      seenEpfs.add(emp.epf);
+    });
 
     req.body = parsed;
     next();

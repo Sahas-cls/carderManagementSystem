@@ -49,7 +49,7 @@ function scopedFactoryId(user) {
   return user.factory?.id ?? null;
 }
 
-// GET /api/employees?search=&page=&pageSize= (Manage Employees page) - returns { rows, total, page, pageSize }
+// GET /api/employees?search=&page=&pageSize=&incomplete= (Manage Employees page) - returns { rows, total, page, pageSize }
 const getEmployees = asyncHandler(async (req, res) => {
   // The User role is pinned to its own factory; everyone else may pick one
   // via ?factoryId= (or leave it off for every factory).

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import { CountBadge } from "../../components/ui/Badge";
@@ -6,7 +6,7 @@ import { FieldInput, FieldSelect } from "../../components/ui/FormField";
 import useAuth from "../../hooks/useAuth";
 import Swal from "sweetalert2";
 import { CiEdit } from "react-icons/ci";
-import { MdDeleteForever } from "react-icons/md";
+// import { MdDeleteForever } from "react-icons/md";
 import { getDesignations } from "../../services/designationServices";
 import { getDepartments } from "../../services/departmentServices";
 import { getSections } from "../../services/sectionServices";
@@ -16,7 +16,7 @@ import {
   getEmployees,
   createEmployee,
   editEmployee,
-  deleteEmployee,
+  // deleteEmployee,
 } from "../../services/employeeServices";
 import { ALLOW_USER_EMPLOYEE_EDITING } from "../../config/featureFlags";
 
@@ -92,7 +92,22 @@ const ManageEmployeesPage = () => {
   const [editingId, setEditingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [deletingId, setDeletingId] = useState(null);
+  // const [deletingId, setDeletingId] = useState(null);
+  // Off by default: only employees still missing a Date of Birth or Civil
+  // Status are listed, so the ones needing attention come first. The User
+  // role stays pinned to its own factory either way (server-enforced).
+  const [showAll, setShowAll] = useState(false);
+  const formRef = useRef(null);
+
+  // Bring the form into view whenever a row's Edit is clicked, so the user
+  // doesn't have to scroll back up from deep in the list.
+  useEffect(() => {
+    if (!showForm || !editingId) return;
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    formRef.current
+      ?.querySelector("input, select")
+      ?.focus({ preventScroll: true });
+  }, [showForm, editingId]);
 
   // Debounce the EPF search box so we're not firing a request per keystroke.
   useEffect(() => {
@@ -168,6 +183,7 @@ const ManageEmployeesPage = () => {
           search: search || undefined,
           // Ignored server-side for the User role (pinned to its own factory).
           factoryId: factoryFilter || undefined,
+          incomplete: !showAll,
           page,
           pageSize: PAGE_SIZE,
         });
@@ -192,7 +208,7 @@ const ManageEmployeesPage = () => {
     return () => {
       cancelled = true;
     };
-  }, [reloadToken, search, factoryFilter, page]);
+  }, [reloadToken, search, factoryFilter, showAll, page]);
 
   const resetForm = () => {
     setForm({ ...EMPTY_FORM });
@@ -353,45 +369,45 @@ const ManageEmployeesPage = () => {
     }
   };
 
-  const handleDelete = async (row) => {
-    const { isConfirmed } = await Swal.fire({
-      title: `Delete '${row.employeeName}' (${row.epf})?`,
-      text: "This action cannot be undone!",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonText: "Delete",
-      cancelButtonText: "Cancel",
-      confirmButtonColor: "#d33",
-      cancelButtonColor: "#3085d6",
-    });
-    if (!isConfirmed) return;
+  // const handleDelete = async (row) => {
+  //   const { isConfirmed } = await Swal.fire({
+  //     title: `Delete '${row.employeeName}' (${row.epf})?`,
+  //     text: "This action cannot be undone!",
+  //     icon: "warning",
+  //     showCancelButton: true,
+  //     confirmButtonText: "Delete",
+  //     cancelButtonText: "Cancel",
+  //     confirmButtonColor: "#d33",
+  //     cancelButtonColor: "#3085d6",
+  //   });
+  //   if (!isConfirmed) return;
 
-    setDeletingId(row.id);
-    try {
-      await deleteEmployee(row.id);
-      Swal.fire({
-        title: "Deleted!",
-        text: `'${row.employeeName}' has been deleted.`,
-        icon: "success",
-        timer: 2000,
-        showConfirmButton: false,
-      });
-      if (editingId === row.id) {
-        resetForm();
-        setShowForm(false);
-      }
-      refetch();
-    } catch (error) {
-      Swal.fire({
-        title: "Error!",
-        text: error.message || "Failed to delete employee.",
-        icon: "error",
-        confirmButtonText: "OK",
-      });
-    } finally {
-      setDeletingId(null);
-    }
-  };
+  //   // setDeletingId(row.id);
+  //   try {
+  //     await deleteEmployee(row.id);
+  //     Swal.fire({
+  //       title: "Deleted!",
+  //       text: `'${row.employeeName}' has been deleted.`,
+  //       icon: "success",
+  //       timer: 2000,
+  //       showConfirmButton: false,
+  //     });
+  //     if (editingId === row.id) {
+  //       resetForm();
+  //       setShowForm(false);
+  //     }
+  //     refetch();
+  //   } catch (error) {
+  //     Swal.fire({
+  //       title: "Error!",
+  //       text: error.message || "Failed to delete employee.",
+  //       icon: "error",
+  //       confirmButtonText: "OK",
+  //     });
+  //   } finally {
+  //     // setDeletingId(null);
+  //   }
+  // };
 
   const isSearching = Boolean(search);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -413,193 +429,223 @@ const ManageEmployeesPage = () => {
       </div>
 
       {showForm && (
-        <Card
-          title={editingId ? "Edit Employee" : "Add New Employee"}
-          variant="navy"
-        >
-          <form className="p-4 grid gap-y-3" onSubmit={handleSubmit}>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <FieldInput
-                label="EPF Number"
-                placeholder="e.g., 1234"
-                value={form.epf}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, epf: e.target.value }))
-                }
-              />
-              <div className="md:col-span-2">
+        <div ref={formRef} className="scroll-mt-4">
+          <Card
+            title={editingId ? "Edit Employee" : "Add New Employee"}
+            variant="navy"
+          >
+            <form className="p-4 grid gap-y-3" onSubmit={handleSubmit}>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <FieldInput
-                  label="Employee Name"
-                  placeholder="e.g., A. B. Perera"
-                  value={form.employeeName}
+                  label="EPF Number"
+                  placeholder="e.g., 1234"
+                  value={form.epf}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, epf: e.target.value }))
+                  }
+                />
+                <div className="md:col-span-2">
+                  <FieldInput
+                    label="Employee Name"
+                    placeholder="e.g., A. B. Perera"
+                    value={form.employeeName}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        employeeName: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <FieldSelect
+                  label="Designation"
+                  value={form.designationId}
                   onChange={(e) =>
                     setForm((prev) => ({
                       ...prev,
-                      employeeName: e.target.value,
+                      designationId: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="">Select Designation</option>
+                  {designations.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.designation}
+                    </option>
+                  ))}
+                </FieldSelect>
+
+                <FieldSelect
+                  label="Department"
+                  value={form.departmentId}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      departmentId: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="">Select Department</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.departmentName}
+                      {d.factory?.factoryName
+                        ? ` (${d.factory.factoryName})`
+                        : ""}
+                    </option>
+                  ))}
+                </FieldSelect>
+
+                <FieldSelect
+                  label="Section"
+                  value={form.sectionId}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, sectionId: e.target.value }))
+                  }
+                >
+                  <option value="">Select Section</option>
+                  {sections.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.sectionName}
+                    </option>
+                  ))}
+                </FieldSelect>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <FieldInput
+                  label="Date of Join"
+                  type="date"
+                  value={form.dateOfJoin}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, dateOfJoin: e.target.value }))
+                  }
+                />
+                <FieldInput
+                  label="Date of Resign (optional)"
+                  type="date"
+                  value={form.dateOfResign}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      dateOfResign: e.target.value,
                     }))
                   }
                 />
+                <FieldSelect
+                  label="Resignation Reason (optional)"
+                  value={form.resignationReasonId}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      resignationReasonId: e.target.value,
+                    }))
+                  }
+                  disabled={!form.dateOfResign}
+                >
+                  <option value="">Select Reason</option>
+                  {resignationReasons.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.resignedReason}
+                    </option>
+                  ))}
+                </FieldSelect>
               </div>
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <FieldSelect
-                label="Designation"
-                value={form.designationId}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    designationId: e.target.value,
-                  }))
-                }
-              >
-                <option value="">Select Designation</option>
-                {designations.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.designation}
-                  </option>
-                ))}
-              </FieldSelect>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <FieldInput
+                  label="Date of Birth (optional)"
+                  type="date"
+                  value={form.dateOfBirth}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      dateOfBirth: e.target.value,
+                    }))
+                  }
+                />
+                <FieldSelect
+                  label="Civil Status (optional)"
+                  value={form.civilStatus}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      civilStatus: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="">Select Civil Status</option>
+                  <option value="Married">Married</option>
+                  <option value="Unmarried">Unmarried</option>
+                </FieldSelect>
+                <FieldSelect
+                  label="Gender (optional)"
+                  value={form.gender}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, gender: e.target.value }))
+                  }
+                >
+                  <option value="">Select Gender</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                </FieldSelect>
+              </div>
 
-              <FieldSelect
-                label="Department"
-                value={form.departmentId}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, departmentId: e.target.value }))
-                }
-              >
-                <option value="">Select Department</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.departmentName}
-                    {d.factory?.factoryName
-                      ? ` (${d.factory.factoryName})`
-                      : ""}
-                  </option>
-                ))}
-              </FieldSelect>
-
-              <FieldSelect
-                label="Section"
-                value={form.sectionId}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, sectionId: e.target.value }))
-                }
-              >
-                <option value="">Select Section</option>
-                {sections.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.sectionName}
-                  </option>
-                ))}
-              </FieldSelect>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <FieldInput
-                label="Date of Join"
-                type="date"
-                value={form.dateOfJoin}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, dateOfJoin: e.target.value }))
-                }
-              />
-              <FieldInput
-                label="Date of Resign (optional)"
-                type="date"
-                value={form.dateOfResign}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, dateOfResign: e.target.value }))
-                }
-              />
-              <FieldSelect
-                label="Resignation Reason (optional)"
-                value={form.resignationReasonId}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    resignationReasonId: e.target.value,
-                  }))
-                }
-                disabled={!form.dateOfResign}
-              >
-                <option value="">Select Reason</option>
-                {resignationReasons.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.resignedReason}
-                  </option>
-                ))}
-              </FieldSelect>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <FieldInput
-                label="Date of Birth (optional)"
-                type="date"
-                value={form.dateOfBirth}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, dateOfBirth: e.target.value }))
-                }
-              />
-              <FieldSelect
-                label="Civil Status (optional)"
-                value={form.civilStatus}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, civilStatus: e.target.value }))
-                }
-              >
-                <option value="">Select Civil Status</option>
-                <option value="Married">Married</option>
-                <option value="Unmarried">Unmarried</option>
-              </FieldSelect>
-              <FieldSelect
-                label="Gender (optional)"
-                value={form.gender}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, gender: e.target.value }))
-                }
-              >
-                <option value="">Select Gender</option>
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-              </FieldSelect>
-            </div>
-
-            <div className="mt-4 flex gap-4 justify-end">
-              <Button
-                type="button"
-                onClick={handleCancel}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                disabled={isSubmitting}
-                className="min-w-[100px]"
-              >
-                {isSubmitting
-                  ? editingId
-                    ? "Updating..."
-                    : "Saving..."
-                  : editingId
-                    ? "Update"
-                    : "Save"}
-              </Button>
-            </div>
-          </form>
-        </Card>
+              <div className="mt-4 flex gap-4 justify-end">
+                <Button
+                  type="button"
+                  onClick={handleCancel}
+                  disabled={isSubmitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={isSubmitting}
+                  className="min-w-[100px]"
+                >
+                  {isSubmitting
+                    ? editingId
+                      ? "Updating..."
+                      : "Saving..."
+                    : editingId
+                      ? "Update"
+                      : "Save"}
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
       )}
 
       <div className="mt-4 rounded-md">
         <Card
           title={
-            isSearching ? `Search Results for "${search}"` : "All Employees"
+            isSearching
+              ? `Search Results for "${search}"`
+              : showAll
+                ? "All Employees"
+                : "Employees Missing Date of Birth / Civil Status"
           }
           variant="navy"
           actions={
             <div className="flex items-center gap-3">
+              <label className="flex items-center gap-1.5 text-white text-xs cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={showAll}
+                  onChange={(e) => {
+                    setShowAll(e.target.checked);
+                    setPage(1);
+                  }}
+                  className="cursor-pointer"
+                />
+                Show all
+              </label>
               {canFilterByFactory && (
                 <select
                   value={factoryFilter}
@@ -650,7 +696,9 @@ const ManageEmployeesPage = () => {
               <div className="text-center text-sm text-slate-400 py-10">
                 {isSearching
                   ? `No employees found matching EPF "${search}".`
-                  : 'No employees found. Click "Add Employee" to create one.'}
+                  : showAll
+                    ? "No employees found."
+                    : 'Every employee has a Date of Birth and Civil Status. Tick "Show all" to see everyone.'}
               </div>
             ) : (
               <table className="w-full text-sm border-collapse">

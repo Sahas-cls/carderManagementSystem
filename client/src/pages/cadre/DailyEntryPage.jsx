@@ -101,6 +101,10 @@ export default function DailyEntryPage() {
   // batchId of the record most recently added/updated in this session - the
   // records table highlights that row so the user can spot what they just saved.
   const [lastSavedBatchId, setLastSavedBatchId] = useState(null);
+  // Bumped whenever the form switches to a different entry (cleared/saved,
+  // or a record loaded for editing) - remounts CadreDetailsCard so its
+  // popups never carry one entry's employee rows into the next.
+  const [entryKey, setEntryKey] = useState(0);
 
   // Planned MO/TMO is no longer typed in by hand - it always mirrors whichever budget is
   // currently active (Budget Master) for the selected factory, so it's derived here rather
@@ -186,6 +190,7 @@ export default function DailyEntryPage() {
   const resetForm = () => {
     setForm(emptyForm);
     setEditingRecord(null);
+    setEntryKey((k) => k + 1);
   };
 
   const handleAdd = async () => {
@@ -257,6 +262,24 @@ export default function DailyEntryPage() {
       return;
     }
 
+    // The same EPF on both tiles (or twice on one) would be saved as a
+    // single employee, leaving a tile short - only lists that will actually
+    // be submitted (count > 0) are checked.
+    const submittedEpfs = [
+      ...(resignedTotal > 0 ? resignedEmployees : []),
+      ...(transferTotal > 0 ? transferEmployees : []),
+    ].map((emp) => String(emp.epf ?? "").trim());
+    const duplicateEpf = submittedEpfs.find(
+      (epf, i) => epf && submittedEpfs.indexOf(epf) !== i,
+    );
+    if (duplicateEpf) {
+      notifyError(
+        `EPF ${duplicateEpf} is entered more than once across the Resigned/Transfer popups - each employee can only be recorded once per entry.`,
+        "Validation Error",
+      );
+      return;
+    }
+
     const payload = buildPayload(plannedForm);
     setSaving(true);
     try {
@@ -285,6 +308,7 @@ export default function DailyEntryPage() {
   const handleEdit = (record) => {
     setForm(recordToForm(record));
     setEditingRecord(record);
+    setEntryKey((k) => k + 1);
     notifySuccess("Record loaded. Make your changes and click Update Record.");
     // window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -327,6 +351,7 @@ export default function DailyEntryPage() {
         weeks={weeks}
       />
       <CadreDetailsCard
+        key={entryKey}
         form={plannedForm}
         totals={totals}
         onChange={handleChange}

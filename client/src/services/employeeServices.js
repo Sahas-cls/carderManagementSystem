@@ -75,8 +75,9 @@ export function getUnlinkedResignedEmployees() {
 
 /** No `search` -> the 10 (or `limit`) most recently added employees. With `search`, employees whose EPF number contains it. */
 /** One page of employees (optionally EPF-filtered) - resolves to { rows, total, page, pageSize }. */
-export function getEmployees({ search, factoryId, page, pageSize } = {}) {
+export function getEmployees({ search, factoryId, page, pageSize, incomplete } = {}) {
   const params = {};
+  if (incomplete) params.incomplete = true;
   if (search) params.search = search;
   if (factoryId) params.factoryId = factoryId;
   if (page) params.page = page;

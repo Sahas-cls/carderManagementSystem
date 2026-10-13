@@ -7,6 +7,32 @@ import ResignedEmployeesModal from "./ResignedEmployeesModal";
 import ResignedEmployeesListModal from "./ResignedEmployeesListModal";
 import RejoinedEmployeesListModal from "./RejoinedEmployeesListModal";
 import { FaEye } from "react-icons/fa";
+import Swal from "sweetalert2";
+
+// Only one clear-confirmation at a time - both MO and TMO fields share it.
+let clearConfirmOpen = false;
+
+/**
+ * Asks before discarding the employee details already entered for a tile
+ * whose MO/TMO count was just set to 0 (e.g. the field cleared to retype
+ * it). Resolves true to clear them, false to keep them on the form.
+ */
+function confirmClearEmployees(count, label) {
+  if (clearConfirmOpen) return Promise.resolve(false);
+  clearConfirmOpen = true;
+  return Swal.fire({
+    title: "Remove employee details?",
+    text: `The ${label} count is now 0. Remove the ${count} ${label} employee detail(s) already entered? Choose Keep if you're about to re-enter the count.`,
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonText: "Remove",
+    cancelButtonText: "Keep",
+  })
+    .then((result) => result.isConfirmed)
+    .finally(() => {
+      clearConfirmOpen = false;
+    });
+}
 
 // Modal component
 function TransferModal({
@@ -270,7 +296,9 @@ export default function CadreDetailsCard({
 
   const handleResignedBlur = () => {
     if (resignedTotal === 0 && resignedEmployees.length > 0) {
-      onChange("resignedEmployees", []);
+      confirmClearEmployees(resignedEmployees.length, "resigned").then((ok) => {
+        if (ok) onChange("resignedEmployees", []);
+      });
     } else if (resignedTotal > resignedEmployees.length) {
       setShowResignedPopup(true);
     }
@@ -286,7 +314,9 @@ export default function CadreDetailsCard({
 
   const handleTransferBlur = () => {
     if (transferTotal === 0 && transferEmployees.length > 0) {
-      onChange("transferEmployees", []);
+      confirmClearEmployees(transferEmployees.length, "transfer").then((ok) => {
+        if (ok) onChange("transferEmployees", []);
+      });
     } else if (transferTotal > transferEmployees.length) {
       setShowTransferPopup(true);
     }

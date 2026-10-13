@@ -14,6 +14,8 @@ import { PiIdentificationBadgeFill } from "react-icons/pi";
 import useAuth from "../../hooks/useAuth";
 import { ALLOW_USER_EMPLOYEE_EDITING } from "../../config/featureFlags";
 
+const appVersion = __APP_VERSION__;
+
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: <TbLayoutDashboard />, end: true },
   { to: "/week-entry", label: "Week Master", icon: <FaCalendar />, end: true },
@@ -103,7 +105,10 @@ export default function Sidebar() {
   // ALLOW_USER_EMPLOYEE_EDITING) - the Admin section stays admin-only.
   const mainNavItems =
     ALLOW_USER_EMPLOYEE_EDITING && !isAdmin && !isSuperUser
-      ? [...NAV_ITEMS, AD_NAV_ITEMS.find((item) => item.to === "/manage-employees")]
+      ? [
+          ...NAV_ITEMS,
+          AD_NAV_ITEMS.find((item) => item.to === "/manage-employees"),
+        ]
       : NAV_ITEMS;
 
   return (
@@ -168,6 +173,18 @@ export default function Sidebar() {
           <p className="text-[10px] opacity-70 m-0 truncate">
             {user.role?.userRole || "—"}
           </p>
+          <div className="mt-0">
+            {appVersion && (
+              <div className="">
+                <p className="text-xs text-left text-gray-100/60">
+                  {"v" + appVersion}
+                </p>
+              </div>
+            )}
+          </div>
+          {/* <div className="">
+            <p className="text-start">Concord IT</p>
+          </div> */}
           <button
             type="button"
             onClick={logout}

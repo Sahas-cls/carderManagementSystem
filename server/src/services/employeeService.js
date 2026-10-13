@@ -792,11 +792,15 @@ async function departmentIdsForFactory(factoryId) {
  * Returns { rows, total, page, pageSize }, `total` being the full match
  * count across all pages. `factoryId` (set for the User role - see
  * employeeController.scopedFactoryId) narrows it to that factory's
- * employees.
+ * employees; `incomplete` to those still missing a Date of Birth or Civil
+ * Status.
  */
-async function listEmployees({ search, page = 1, pageSize = DEFAULT_PAGE_SIZE, factoryId } = {}) {
+async function listEmployees({ search, page = 1, pageSize = DEFAULT_PAGE_SIZE, factoryId, incomplete } = {}) {
   const where = {};
   if (search) where.epf = { [Op.substring]: search };
+  if (incomplete) {
+    where[Op.or] = [{ dateOfBirth: null }, { civilStatus: null }, { civilStatus: "" }];
+  }
   if (factoryId !== undefined) {
     where.departmentId = { [Op.in]: await departmentIdsForFactory(factoryId) };
   }

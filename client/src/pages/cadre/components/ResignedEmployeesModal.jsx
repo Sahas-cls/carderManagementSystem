@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Button from "../../../components/ui/Button";
 import { getDesignations } from "../../../services/designationServices";
 import { getDepartments } from "../../../services/departmentServices";
@@ -36,6 +36,17 @@ const REQUIRED_FIELDS = [
   "dateOfResign",
   "resignationReasonId",
 ];
+
+// Filled in automatically on a fresh row (entry date, Transfer's derived
+// reason/outcome), so they don't count as the user having typed anything.
+const AUTO_FILLED_FIELDS = ["promotedToMo", "dateOfResign", "resignationReasonId"];
+
+/** Whether a popup row has nothing typed into it yet (auto-filled defaults don't count). */
+function isRowBlank(row) {
+  return Object.keys(EMPTY_ROW).every(
+    (field) => AUTO_FILLED_FIELDS.includes(field) || !row[field],
+  );
+}
 
 /** "Internal Transfer" for a promoted TMO, "External Transfer" for everyone else on the Transfer tile. */
 function deriveTransferReasonName(row, isMo) {
@@ -129,25 +140,57 @@ export default function ResignedEmployeesModal({
   const [sections, setSections] = useState([]);
   const [reasons, setReasons] = useState([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
+  // EPFs that have been on this entry's form at some point (loaded or
+  // saved) - see the rows effect below.
+  const knownEpfsRef = useRef(new Set());
 
   useEffect(() => {
     if (!isOpen) return;
     setError("");
     setActiveIndex(0);
-    // Keep whatever rows already exist (e.g. re-opening after editing a
-    // saved record, or nudging the count up/down), padding with blanks or
-    // trimming to match the new total.
+    // The entry's own employees (initialEmployees - what's actually on the
+    // form) always come first, each in a slot matching its own MO/TMO; any
+    // remaining slots reuse rows typed in an earlier, cancelled open of this
+    // popup, then blanks - trimmed to match the new total.
+    const saved = initialEmployees || [];
+    saved.forEach((e) => {
+      const epf = String(e.epf ?? "").trim();
+      if (epf) knownEpfsRef.current.add(epf);
+    });
     setRows((prevRows) => {
-      const base = prevRows.length ? prevRows : initialEmployees || [];
-      const next = Array.from({ length: total }, (_, i) => ({
+      // Never re-offer someone already on file, or someone who was on file
+      // and has since been removed (eye icon delete, count cleared to 0) -
+      // only genuinely unsaved drafts.
+      const drafts = prevRows.filter((row) => {
+        const epf = String(row.epf ?? "").trim();
+        return epf ? !knownEpfsRef.current.has(epf) : !isRowBlank(row);
+      });
+      const slots = new Array(total).fill(null);
+      const byOwnIsMo = saved.every((e) => typeof e.isMo === "boolean");
+      const leftover = [];
+      if (byOwnIsMo) {
+        const mo = saved.filter((e) => e.isMo);
+        const tmo = saved.filter((e) => !e.isMo);
+        for (let i = 0; i < total; i += 1) {
+          const queue = i < rmo ? mo : tmo;
+          if (queue.length) slots[i] = queue.shift();
+        }
+        leftover.push(...mo, ...tmo);
+      } else {
+        leftover.push(...saved);
+      }
+      leftover.push(...drafts);
+      for (let i = 0; i < total && leftover.length; i += 1) {
+        if (!slots[i]) slots[i] = leftover.shift();
+      }
+      return slots.map((base) => ({
         ...EMPTY_ROW,
-        ...base[i],
-        dateOfResign: base[i]?.dateOfResign || entryDate || "",
+        ...base,
+        dateOfResign: base?.dateOfResign || entryDate || "",
         // Saved rows come back with null for these when never entered.
-        dateOfBirth: base[i]?.dateOfBirth || "",
-        civilStatus: base[i]?.civilStatus || "",
+        dateOfBirth: base?.dateOfBirth || "",
+        civilStatus: base?.civilStatus || "",
       }));
-      return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, total]);
@@ -265,6 +308,10 @@ export default function ResignedEmployeesModal({
       return;
     }
 
+    rows.forEach((row) => {
+      const epf = String(row.epf ?? "").trim();
+      if (epf) knownEpfsRef.current.add(epf);
+    });
     onSave(rows.map((row, i) => ({ ...row, isMo: i < rmo })));
     onClose();
   };
