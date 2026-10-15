@@ -24,8 +24,8 @@ fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
 console.log('Sequelize production configuration updated.');
 NODE
 
-echo "Running database migrations..."
-npx sequelize-cli db:migrate
+echo "Skipping automatic database migrations..."
 
 echo "Starting backend..."
 exec "$@"
+

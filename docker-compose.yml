@@ -2,7 +2,7 @@ services:
   server:
     build:
       context: ./server
-    restart: unless-stopped
+    restart: "no"
     environment:
       NODE_ENV: production
       BACKEND_PORT: 4000
