@@ -1,35 +1,20 @@
 services:
-  mysql:
-    image: mysql:8.0
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-changeme}
-      MYSQL_DATABASE: ${DB_NAME:-carder_management_sys}
-    volumes:
-      - mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD --silent"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
   server:
     build:
       context: ./server
-    restart: unless-stopped
-    depends_on:
-      mysql:
-        condition: service_healthy
+    restart: "no"
     environment:
       NODE_ENV: production
       BACKEND_PORT: 4000
-      DB_HOST: mysql
+      DB_HOST: host.docker.internal
       DB_PORT: 3306
-      DB_USERNAME: root
-      DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      DB_USERNAME: carderuser
+      DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME:-carder_management_sys}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "4000:4000"
 
@@ -42,7 +27,4 @@ services:
     depends_on:
       - server
     ports:
-      - "8080:80"
-
-volumes:
-  mysql_data:
+      - "8081:80"
