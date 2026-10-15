@@ -125,6 +125,7 @@ function validateEmployeeBody(req, res, next) {
       dateOfBirth,
       civilStatus,
       gender,
+      confirmRelink: source.confirmRelink === true,
     };
     next();
   } catch (err) {

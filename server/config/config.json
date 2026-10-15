@@ -1,8 +1,8 @@
 {
   "development": {
-    "username": "carderuser",
-    "password": "Carder#2026Prod",
-    "database": "carder_management_sys",
+    "username": "root",
+    "password": "",
+    "database": "cadre_management_sys4",
     "host": "127.0.0.1",
     "dialect": "mysql"
   },

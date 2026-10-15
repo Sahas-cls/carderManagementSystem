@@ -4,6 +4,7 @@ const { Op } = require("sequelize");
 const {
   Employee,
   EmployeeExit,
+  ExitLog,
   Designation,
   Department,
   Section,
@@ -16,6 +17,45 @@ const {
 const ApiError = require("../utils/ApiError");
 
 const exitType = (isTransfer) => (isTransfer ? "transfer" : "resign");
+
+/**
+ * Appends to the exit audit trail (exitlogs). Call it BEFORE the change with
+ * the event as it currently stands, passing what's about to change as
+ * `changes`, so the log keeps what was lost - or right after a create. Runs in
+ * the caller's transaction, so a rolled-back save leaves no log either.
+ */
+async function logExit(action, exit, transaction, changes) {
+  const employee =
+    exit.employee || (await Employee.findByPk(exit.employeeId, { paranoid: false, transaction }));
+  const plain = exit.get({ plain: true });
+  delete plain.employee;
+  delete plain.resignationReason;
+  await ExitLog.create(
+    {
+      action,
+      exitId: exit.id,
+      employeeId: exit.employeeId,
+      epf: employee?.epf ?? null,
+      employeeName: employee?.employeeName ?? null,
+      batchId: exit.batchId,
+      snapshot: { exit: plain, ...(changes ? { changes } : {}) },
+    },
+    { transaction },
+  );
+}
+
+/** Logs then applies `values` to each of the given exit events. */
+async function updateExitsLogged(action, exits, values, transaction) {
+  for (const ev of exits) await logExit(action, ev, transaction, values);
+  await EmployeeExit.update(values, { where: { id: { [Op.in]: exits.map((ev) => ev.id) } }, transaction });
+}
+
+/** Logs then deletes every exit event of one employee. */
+async function destroyExitsLogged(employeeId, action, transaction) {
+  const exits = await EmployeeExit.findAll({ where: { employeeId }, transaction });
+  for (const ev of exits) await logExit(action, ev, transaction);
+  if (exits.length) await EmployeeExit.destroy({ where: { employeeId }, transaction });
+}
 
 /**
  * An employee's exit events that are still standing (not rejoined), newest
@@ -188,8 +228,13 @@ async function recordExit(employeeId, batchId, isTransfer, fields, transaction) 
   const active =
     (await EmployeeExit.findOne({ where: { ...standing, batchId }, order: [["id", "DESC"]], transaction })) ||
     (await EmployeeExit.findOne({ where: { ...standing, batchId: null }, order: [["id", "DESC"]], transaction }));
-  if (active) await active.update(values, { transaction });
-  else await EmployeeExit.create({ employeeId, ...values }, { transaction });
+  if (active) {
+    await logExit("updated", active, transaction, values);
+    await active.update(values, { transaction });
+  } else {
+    const created = await EmployeeExit.create({ employeeId, ...values }, { transaction });
+    await logExit("created", created, transaction);
+  }
 }
 
 /**
@@ -259,7 +304,7 @@ async function syncResignedEmployees(employees, batchId, transaction, isTransfer
       if (existing.deletedAt) {
         await existing.restore({ transaction });
         // Whatever exits it carried belong to the record that was cleaned up.
-        await EmployeeExit.destroy({ where: { employeeId: existing.id }, transaction });
+        await destroyExitsLogged(existing.id, "purged_on_restore", transaction);
       }
       employee = await existing.update(fields, { transaction });
     } else {
@@ -279,10 +324,7 @@ async function syncResignedEmployees(employees, batchId, transaction, isTransfer
     { transaction, employeeWhere },
   );
   if (trimmed.length) {
-    await EmployeeExit.update(
-      { batchId: null },
-      { where: { id: { [Op.in]: trimmed.map((ev) => ev.id) } }, transaction },
-    );
+    await updateExitsLogged("unlinked_trimmed", trimmed, { batchId: null }, transaction);
     trimmed.forEach((ev) => touched.add(ev.employeeId));
   }
 
@@ -317,6 +359,7 @@ async function deleteResignedEmployee(epf, batchId, transaction) {
     transaction,
   });
   if (otherExits) {
+    await logExit("removed_from_entry", exit, transaction);
     await exit.destroy({ transaction });
     await refreshLegacyExit(exit.employeeId, transaction);
   } else {
@@ -325,6 +368,7 @@ async function deleteResignedEmployee(epf, batchId, transaction) {
     // Sequelize's own default queries). force:true here issues a real SQL
     // DELETE so the row is actually gone from the database, matching what
     // this button promises the user.
+    await logExit("employee_deleted", exit, transaction, { employee: exit.employee.get({ plain: true }) });
     await exit.employee.destroy({ transaction, force: true });
   }
   return { epf, isMo, isTransfer };
@@ -371,14 +415,13 @@ async function rejoinEmployee(epf, batchId, transaction, { rejoinDate = null, re
   const isTransfer = exit.type === "transfer";
   // rejoinedBatchId is what marks an event rejoined, so it must never stay
   // null here - default to the batch it was recorded on.
-  await exit.update(
-    {
-      dateOfRejoin: rejoinDate || null,
-      rejoinedBatchId: rejoinedBatchId || batchId,
-      rejoinedIsMo: isMo,
-    },
-    { transaction },
-  );
+  const rejoinValues = {
+    dateOfRejoin: rejoinDate || null,
+    rejoinedBatchId: rejoinedBatchId || batchId,
+    rejoinedIsMo: isMo,
+  };
+  await logExit("rejoined", exit, transaction, rejoinValues);
+  await exit.update(rejoinValues, { transaction });
   await refreshLegacyExit(exit.employeeId, transaction);
   return { epf, isMo, isTransfer };
 }
@@ -391,9 +434,13 @@ async function rejoinEmployee(epf, batchId, transaction, { rejoinDate = null, re
  * clearing it would make an already-rejoined event look standing again.
  */
 async function unlinkBatch(batchId, transaction) {
-  const exits = await EmployeeExit.findAll({ where: { batchId }, attributes: ["id", "employeeId"], transaction });
+  const exits = await EmployeeExit.findAll({
+    where: { batchId },
+    include: [{ model: Employee, as: "employee", required: false }],
+    transaction,
+  });
   if (!exits.length) return;
-  await EmployeeExit.update({ batchId: null }, { where: { batchId }, transaction });
+  await updateExitsLogged("unlinked_entry_deleted", exits, { batchId: null }, transaction);
   for (const employeeId of new Set(exits.map((ev) => ev.employeeId))) {
     await refreshLegacyExit(employeeId, transaction);
   }
@@ -861,27 +908,124 @@ async function assertEpfAvailable(epf, excludeId) {
   return null;
 }
 
+/**
+ * The Daily Data Entry batch a resignation typed into Manage Employees belongs
+ * to: the entry for the employee's factory (via their department) dated the
+ * resign date. Throws 409 unless exactly one entry matches - none leaves
+ * nothing to link to, and a factory may log several entries for one date
+ * (see dailyCadreService.createDailyRecord), so picking one would be a guess.
+ */
+async function resolveBatchForResign(departmentId, dateOfResign, transaction) {
+  const department = await Department.findByPk(departmentId, { attributes: ["factoryId"], transaction });
+  if (!department) throw new ApiError(400, "Department not found.");
+  const entries = await PlannedCarder.findAll({
+    where: { factoryId: department.factoryId, date: dateOfResign },
+    attributes: ["batchId"],
+    transaction,
+  });
+  if (entries.length === 1) return entries[0].batchId;
+  const factory = await Factory.findByPk(department.factoryId, { attributes: ["factoryName"], transaction });
+  const where = `${factory?.factoryName ? `${factory.factoryName} ` : ""}daily entry dated ${dateOfResign}`;
+  throw new ApiError(
+    409,
+    entries.length
+      ? `There is more than one ${where}, so the resignation can't be linked automatically. Resolve the duplicate entries first.`
+      : `There is no ${where}. Create the Daily Data Entry first, then record the resignation.`,
+  );
+}
+
+/**
+ * Records the resign exit for an employee whose Date of Resign was just saved
+ * on Manage Employees, tying it to the matching Daily Data Entry. `previous`
+ * is the employee's batchId/dateOfResign/isTransfer from before the save.
+ * Runs inside the caller's transaction.
+ */
+async function linkResignationToBatch(employee, fields, previous, transaction) {
+  const linked = !!previous.batchId;
+  const editInPlace = async (batchId) => {
+    const exits = await EmployeeExit.findAll({
+      where: { employeeId: employee.id, batchId, rejoinedBatchId: null },
+      transaction,
+    });
+    if (!exits.length) return;
+    await updateExitsLogged(
+      "edited_in_manage_employees",
+      exits,
+      { dateOfExit: fields.dateOfResign, resignationReasonId: fields.resignationReasonId ?? null },
+      transaction,
+    );
+  };
+
+  // Already on an entry as a transfer, or the date didn't change: just keep
+  // that event's date/reason in step.
+  if (linked && (previous.isTransfer || previous.dateOfResign === fields.dateOfResign)) {
+    await editInPlace(previous.batchId);
+    return;
+  }
+
+  const batchId = await resolveBatchForResign(fields.departmentId, fields.dateOfResign, transaction);
+  if (linked) {
+    if (batchId === previous.batchId) {
+      await editInPlace(batchId);
+    } else {
+      // Date moved to a day with a different entry - move the exit with it.
+      const moving = await EmployeeExit.findAll({
+        where: { employeeId: employee.id, batchId: previous.batchId, type: "resign", rejoinedBatchId: null },
+        transaction,
+      });
+      if (moving.length) {
+        await updateExitsLogged(
+          "moved_to_other_entry",
+          moving,
+          { batchId, dateOfExit: fields.dateOfResign, resignationReasonId: fields.resignationReasonId ?? null },
+          transaction,
+        );
+      }
+    }
+  } else {
+    await assertCanRecordExit(employee, batchId, false, fields.dateOfResign, transaction);
+    await recordExit(employee.id, batchId, false, { ...fields, isMo: employee.isMo ?? null }, transaction);
+  }
+  await refreshLegacyExit(employee.id, transaction);
+}
+
 async function createEmployeeRecord(fields) {
   const softDeleted = await assertEpfAvailable(fields.epf);
-  // A soft-deleted employee (e.g. a cleaned-up unlinked resignation) with
-  // this epf - bring that row back with the new details instead of inserting.
-  if (softDeleted) {
-    await softDeleted.restore();
-    await softDeleted.update({
-      ...fields,
-      batchId: null,
-      isMo: null,
-      isTransfer: null,
-      promotedToMo: null,
-      newDesignationId: null,
-      dateOfRejoin: null,
-      rejoinedBatchId: null,
-      rejoinedIsMo: null,
-    });
-    return getEmployeeOr404(softDeleted.id);
-  }
-  const employee = await Employee.create(fields);
-  return getEmployeeOr404(employee.id);
+  return Employee.sequelize.transaction(async (transaction) => {
+    let employee;
+    // A soft-deleted employee (e.g. a cleaned-up unlinked resignation) with
+    // this epf - bring that row back with the new details instead of inserting.
+    if (softDeleted) {
+      await softDeleted.restore({ transaction });
+      // Whatever exits it carried belong to the record that was cleaned up.
+      await destroyExitsLogged(softDeleted.id, "purged_on_restore", transaction);
+      employee = await softDeleted.update(
+        {
+          ...fields,
+          batchId: null,
+          isMo: null,
+          isTransfer: null,
+          promotedToMo: null,
+          newDesignationId: null,
+          dateOfRejoin: null,
+          rejoinedBatchId: null,
+          rejoinedIsMo: null,
+        },
+        { transaction },
+      );
+    } else {
+      employee = await Employee.create(fields, { transaction });
+    }
+    if (fields.dateOfResign) {
+      await linkResignationToBatch(
+        employee,
+        fields,
+        { batchId: null, dateOfResign: null, isTransfer: null },
+        transaction,
+      );
+    }
+    return getEmployeeOr404(employee.id);
+  });
 }
 
 /**
@@ -891,7 +1035,8 @@ async function createEmployeeRecord(fields) {
  * reported as not found rather than forbidden, so other factories'
  * employee ids aren't confirmed to exist.
  */
-async function updateEmployeeRecord(id, fields, { factoryId } = {}) {
+async function updateEmployeeRecord(id, body, { factoryId } = {}) {
+  const { confirmRelink, ...fields } = body;
   const employee = await getEmployeeOr404(id);
   if (factoryId !== undefined) {
     const allowed = await departmentIdsForFactory(factoryId);
@@ -906,16 +1051,45 @@ async function updateEmployeeRecord(id, fields, { factoryId } = {}) {
     throw new ApiError(409, `EPF number "${fields.epf}" belongs to a deleted employee record.`);
   }
 
-  await employee.update(fields);
-  // dateOfResign / resignationReasonId are editable here too and describe the
-  // employee's current exit - keep its active event (the one still tied to
-  // employee.batchId) in step, since reads now come from employeeexits.
-  if (employee.batchId && fields.dateOfResign) {
-    await EmployeeExit.update(
-      { dateOfExit: fields.dateOfResign, resignationReasonId: fields.resignationReasonId ?? null },
-      { where: { employeeId: employee.id, batchId: employee.batchId, rejoinedBatchId: null } },
+  const previous = {
+    batchId: employee.batchId,
+    dateOfResign: employee.dateOfResign,
+    isTransfer: employee.isTransfer,
+  };
+  // The exit lives on a Daily Data Entry; clearing the date here would leave
+  // that entry's event standing while the employee reads as active.
+  if (!fields.dateOfResign && previous.batchId && previous.dateOfResign) {
+    throw new ApiError(
+      409,
+      "This employee's resignation is linked to a Daily Data Entry. Remove them from that entry first to clear the Date of Resign.",
     );
   }
+
+  // Moving the date of a resignation that's tied to a Daily Data Entry
+  // re-links it to whichever entry is dated the new day - make the user
+  // confirm that before touching anything.
+  if (
+    fields.dateOfResign &&
+    previous.batchId &&
+    previous.dateOfResign &&
+    !previous.isTransfer &&
+    previous.dateOfResign !== fields.dateOfResign &&
+    !confirmRelink
+  ) {
+    throw new ApiError(
+      409,
+      `This employee's resignation (${previous.dateOfResign})${await describeBatch(previous.batchId)}. Changing the Date of Resign to ${fields.dateOfResign} will move it to the daily entry dated ${fields.dateOfResign}. Do you want to continue?`,
+      "CONFIRM_RELINK",
+    );
+  }
+
+  await Employee.sequelize.transaction(async (transaction) => {
+    await employee.update(fields, { transaction });
+    // dateOfResign / resignationReasonId describe the employee's current exit.
+    // Reads come from employeeexits, so create/keep its event in step and tie
+    // it to the matching Daily Data Entry.
+    if (fields.dateOfResign) await linkResignationToBatch(employee, fields, previous, transaction);
+  });
   return getEmployeeOr404(id);
 }
 
@@ -940,7 +1114,15 @@ async function deleteEmployeeRecord(id) {
       "This employee is linked to a resigned-employee record on a Daily Data Entry and can't be deleted here. Remove them from that entry first.",
     );
   }
-  await employee.destroy({ force: true });
+  await Employee.sequelize.transaction(async (transaction) => {
+    // The FK cascade takes this employee's remaining (rejoined / unlinked)
+    // exit events with them - keep a copy of each.
+    const exits = await EmployeeExit.findAll({ where: { employeeId: employee.id }, transaction });
+    for (const ev of exits) {
+      await logExit("employee_deleted", ev, transaction, { employee: employee.get({ plain: true }) });
+    }
+    await employee.destroy({ force: true, transaction });
+  });
   return employee;
 }
 

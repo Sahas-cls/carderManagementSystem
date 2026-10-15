@@ -426,3 +426,71 @@ export async function exportWeeklyStatusReport(rows, { from, to }) {
 
   await downloadWorkbook(workbook, `Weekly Cadre Status Report_ ${monthSpanLabel(from, to)}.xlsx`);
 }
+
+const EMPLOYEE_COLS = [
+  { header: "EPF Number", width: 13, value: (e) => e.epf },
+  { header: "Employee Name", width: 34, value: (e) => e.employeeName },
+  { header: "Designation", width: 28, value: (e) => e.designation?.designation },
+  { header: "Department", width: 22, value: (e) => e.department?.departmentName },
+  { header: "Section", width: 22, value: (e) => e.section?.sectionName },
+  { header: "Date of Join", width: 14, value: (e) => e.dateOfJoin },
+  { header: "Date of Birth", width: 14, value: (e) => e.dateOfBirth },
+  { header: "Civil Status", width: 13, value: (e) => e.civilStatus },
+  { header: "Gender", width: 10, value: (e) => e.gender },
+  { header: "Status", width: 11, value: (e) => (e.dateOfResign ? "Resigned" : "Active") },
+  { header: "Date of Resign", width: 14, value: (e) => e.dateOfResign },
+  // Left blank on purpose - the factory fills these in while checking the list.
+  { header: "Found? (Y/N)", width: 14, value: () => "" },
+  { header: "Remarks", width: 30, value: () => "" },
+];
+
+// Excel sheet names: max 31 chars, none of  [ ] : * ? / \  and unique per workbook.
+function sheetName(raw, used) {
+  const base = (raw || "Factory").replace(/[[\]:*?\\/]/g, " ").trim().slice(0, 31) || "Factory";
+  let name = base;
+  for (let n = 2; used.has(name.toLowerCase()); n += 1) {
+    const suffix = ` (${n})`;
+    name = base.slice(0, 31 - suffix.length) + suffix;
+  }
+  used.add(name.toLowerCase());
+  return name;
+}
+
+/**
+ * One workbook, one worksheet per factory, listing that factory's employees
+ * (active and resigned, in EPF order) so the factory can tick off who is
+ * really still there. `sheets` is [{ factoryName, employees }].
+ */
+export async function exportEmployeesByFactory(sheets) {
+  const workbook = new ExcelJS.Workbook();
+  const usedNames = new Set();
+
+  for (const { factoryName, employees } of sheets) {
+    const ws = workbook.addWorksheet(sheetName(factoryName, usedNames));
+    const headerRow = ws.getRow(1);
+    EMPLOYEE_COLS.forEach((col, i) => {
+      ws.getColumn(i + 1).width = col.width;
+      const cell = headerRow.getCell(i + 1);
+      cell.value = col.header;
+      styleHeaderCell(cell, NAVY, { size: 11 });
+    });
+    headerRow.height = 28;
+
+    const sorted = [...employees].sort((a, b) =>
+      String(a.epf).localeCompare(String(b.epf), undefined, { numeric: true }),
+    );
+    sorted.forEach((emp, r) => {
+      const row = ws.getRow(2 + r);
+      EMPLOYEE_COLS.forEach((col, i) => {
+        const cell = row.getCell(i + 1);
+        const value = col.value(emp);
+        cell.value = value === undefined || value === null || value === "" ? (col.header.startsWith("Found") || col.header === "Remarks" ? "" : "-") : value;
+        styleDataCell(cell);
+      });
+    });
+    ws.views = [{ state: "frozen", ySplit: 1 }];
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: EMPLOYEE_COLS.length } };
+  }
+
+  await downloadWorkbook(workbook, `Employees_By_Factory_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}

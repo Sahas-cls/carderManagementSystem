@@ -33,7 +33,9 @@ api.interceptors.response.use(
     } else if (error.response?.data?.code === "MUST_CHANGE_PASSWORD") {
       window.dispatchEvent(new CustomEvent("auth:mustChangePassword"));
     }
-    return Promise.reject(new Error(message));
+    const err = new Error(message);
+    if (error.response?.data?.code) err.code = error.response.data.code;
+    return Promise.reject(err);
   }
 );
 

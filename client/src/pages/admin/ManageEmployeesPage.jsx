@@ -19,6 +19,7 @@ import {
   // deleteEmployee,
 } from "../../services/employeeServices";
 import { ALLOW_USER_EMPLOYEE_EDITING } from "../../config/featureFlags";
+import { exportEmployeesByFactory } from "../../utils/excelExport";
 
 const EMPTY_FORM = {
   epf: "",
@@ -35,6 +36,22 @@ const EMPTY_FORM = {
 };
 
 const PAGE_SIZE = 20;
+const EXPORT_PAGE_SIZE = 100; // the server caps pageSize at 100
+
+// Every employee of one factory (undefined = whatever the server scopes the
+// caller to), fetched page by page.
+async function fetchAllEmployees(factoryId) {
+  const all = [];
+  for (let page = 1; ; page += 1) {
+    const { rows = [], total = 0 } = await getEmployees({
+      factoryId,
+      page,
+      pageSize: EXPORT_PAGE_SIZE,
+    });
+    all.push(...rows);
+    if (!rows.length || all.length >= total) return all;
+  }
+}
 
 const formatDate = (date) => {
   if (!date) return "-";
@@ -97,6 +114,7 @@ const ManageEmployeesPage = () => {
   // Status are listed, so the ones needing attention come first. The User
   // role stays pinned to its own factory either way (server-enforced).
   const [showAll, setShowAll] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const formRef = useRef(null);
 
   // Bring the form into view whenever a row's Edit is clicked, so the user
@@ -210,6 +228,38 @@ const ManageEmployeesPage = () => {
     };
   }, [reloadToken, search, factoryFilter, showAll, page]);
 
+  // One workbook, a worksheet per factory, handed to the factories so they
+  // can check which listed employees are really still there.
+  const handleExportByFactory = async () => {
+    setExporting(true);
+    try {
+      const sheets = canFilterByFactory
+        ? await Promise.all(
+            factories.map(async (f) => ({
+              factoryName: f.factoryName,
+              employees: await fetchAllEmployees(f.id),
+            })),
+          )
+        : [
+            {
+              // The User role is pinned to its own factory server-side.
+              factoryName: user?.factory?.factoryName,
+              employees: await fetchAllEmployees(undefined),
+            },
+          ];
+      await exportEmployeesByFactory(sheets);
+    } catch (error) {
+      Swal.fire({
+        title: "Error!",
+        text: error.message || "Failed to export employees.",
+        icon: "error",
+        confirmButtonText: "OK",
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const resetForm = () => {
     setForm({ ...EMPTY_FORM });
     setEditingId(null);
@@ -303,7 +353,21 @@ const ManageEmployeesPage = () => {
           showConfirmButton: false,
         });
       } else {
-        await editEmployee(editingId, payload);
+        try {
+          await editEmployee(editingId, payload);
+        } catch (err) {
+          if (err.code !== "CONFIRM_RELINK") throw err;
+          const { isConfirmed } = await Swal.fire({
+            title: "Change linked date?",
+            text: err.message,
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Yes, change it",
+            cancelButtonText: "Cancel",
+          });
+          if (!isConfirmed) return;
+          await editEmployee(editingId, { ...payload, confirmRelink: true });
+        }
         Swal.fire({
           title: "Success!",
           text: "Employee updated successfully.",
@@ -681,6 +745,15 @@ const ManageEmployeesPage = () => {
                   Clear
                 </button>
               )}
+              <button
+                type="button"
+                onClick={handleExportByFactory}
+                disabled={exporting || (canFilterByFactory && !factories.length)}
+                title="Download every employee, one worksheet per factory"
+                className="rounded border border-white/40 bg-white/10 px-2 py-1 text-white text-xs hover:bg-white/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {exporting ? "Exporting..." : "Export by Factory"}
+              </button>
               <CountBadge>
                 {total} employee{total === 1 ? "" : "s"}
               </CountBadge>
