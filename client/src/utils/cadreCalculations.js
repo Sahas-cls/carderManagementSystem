@@ -28,8 +28,9 @@ export const EMPTY_CADRE_FORM = {
   rejoinedMO: 0,
   rejoinedTMO: 0,
   // Released from Tr. Cen.'s MO/TMO isn't typed in directly - it's set by the
-  // "Transfer to Pro Line" split popup in CadreDetailsCard.jsx (see
-  // handleSaveModal there) and just carried on the form like any other field.
+  // "Transfer to Pro Line" popup in CadreDetailsCard.jsx (derived from the
+  // To Prod as MO / TMO rows of tcTransferEmployees) and just carried on the
+  // form like any other field.
   releasedMO: 0,
   releasedTMO: 0,
   resignedMO: 0,
@@ -55,6 +56,9 @@ export const EMPTY_CADRE_FORM = {
   // Same, for the Transfer tile (e.g. a promotion that moves someone off
   // this MO/TMO carder) - one row per transferMO+transferTMO count.
   transferEmployees: [],
+  // Training Center "Transfer to Pro Line" - one row per tcTransfer count,
+  // each tagged with tcTransferType (prod_mo / prod_tmo / external).
+  tcTransferEmployees: [],
   // Who's currently credited as Rejoined on this record (view-only - see
   // CadreDetailsCard.jsx's Rejoined tile eye icon) - always read from the
   // server (recordToForm below), never built or sent by this form itself.
@@ -213,6 +217,7 @@ export function buildPayload(form) {
     tcAbsent: n(form.tcAbsent),
     resignedEmployees: form.resignedEmployees || [],
     transferEmployees: form.transferEmployees || [],
+    tcTransferEmployees: form.tcTransferEmployees || [],
   };
   if (form.allocActualMO !== "") payload.allocActualMO = n(form.allocActualMO);
   if (form.allocActualTMO !== "") payload.allocActualTMO = n(form.allocActualTMO);
@@ -248,6 +253,7 @@ export function recordToForm(record) {
     tcAbsent: record.tcab || 0,
     resignedEmployees: record.resignedEmployees || [],
     transferEmployees: record.transferEmployees || [],
+    tcTransferEmployees: record.tcTransferEmployees || [],
     rejoinedEmployees: record.rejoinedEmployees || [],
   };
 }

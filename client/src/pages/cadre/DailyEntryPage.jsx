@@ -262,19 +262,53 @@ export default function DailyEntryPage() {
       return;
     }
 
+    const tcTransferCount = Number(form.tcTransfer) || 0;
+    const tcTransferEmployees = form.tcTransferEmployees || [];
+    const REQUIRED_TC_TRANSFER_FIELDS = [
+      "epf",
+      "employeeName",
+      "designationId",
+      "departmentId",
+      "sectionId",
+      "dateOfResign",
+    ];
+    if (tcTransferCount > 0 && tcTransferEmployees.length !== tcTransferCount) {
+      notifyError(
+        `Please enter details for all ${tcTransferCount} Training Center transfer(s) (see the Transfer to Pro Line popup) before submitting.`,
+        "Validation Error",
+      );
+      return;
+    }
+    if (
+      tcTransferCount > 0 &&
+      tcTransferEmployees.some(
+        (emp) =>
+          !emp.tcTransferType ||
+          REQUIRED_TC_TRANSFER_FIELDS.some((field) => !emp[field]) ||
+          (emp.tcTransferType !== "external" && !emp.newDesignationId),
+      )
+    ) {
+      notifyError(
+        "One or more Training Center transfer rows are missing details - please complete them before submitting.",
+        "Validation Error",
+      );
+      return;
+    }
+
     // The same EPF on both tiles (or twice on one) would be saved as a
     // single employee, leaving a tile short - only lists that will actually
     // be submitted (count > 0) are checked.
     const submittedEpfs = [
       ...(resignedTotal > 0 ? resignedEmployees : []),
       ...(transferTotal > 0 ? transferEmployees : []),
+      ...(tcTransferCount > 0 ? tcTransferEmployees : []),
     ].map((emp) => String(emp.epf ?? "").trim());
     const duplicateEpf = submittedEpfs.find(
       (epf, i) => epf && submittedEpfs.indexOf(epf) !== i,
     );
     if (duplicateEpf) {
       notifyError(
-        `EPF ${duplicateEpf} is entered more than once across the Resigned/Transfer popups - each employee can only be recorded once per entry.`,
+        `EPF ${duplicateEpf} is entered more than once across the Resigned/Transfer/Training Center transfer popups - each employee can only be recorded once per entry.`,
         "Validation Error",
       );
       return;

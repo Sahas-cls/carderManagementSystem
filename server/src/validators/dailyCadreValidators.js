@@ -112,6 +112,68 @@ function validateExitEmployees(rows, mo, tmo, label, isTransfer = false) {
   });
 }
 
+const TC_TRANSFER_TYPES = ["prod_mo", "prod_tmo", "external"];
+
+/**
+ * Validates the employee rows of the Training Center's "Transfer to Pro Line"
+ * popup - one fully-filled row per transferred person. Each row's
+ * `tcTransferType` is its category: prod_mo / prod_tmo (moves to production
+ * as MO / TMO, so a designation they move into is required) or external
+ * (leaves the Training Center only). The MO/TMO counts released into
+ * production are derived from these rows by the caller, never trusted from
+ * the client.
+ */
+function validateTcTransferEmployees(rows, tcTransfer) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (tcTransfer === 0) return [];
+  if (list.length !== tcTransfer) {
+    throw new ApiError(400, `Please provide details for all ${tcTransfer} Training Center transfer(s).`);
+  }
+
+  return list.map((row, i) => {
+    const label = `Training Center transfer #${i + 1}`;
+    const required = ["epf", "employeeName", "designationId", "departmentId", "sectionId", "dateOfResign", "tcTransferType"];
+    const parsed = {};
+    required.forEach((field) => {
+      const value = row?.[field];
+      if (value === undefined || value === null || value === "") {
+        throw new ApiError(400, `${label}: ${field} is required.`);
+      }
+      parsed[field] = value;
+    });
+    if (!TC_TRANSFER_TYPES.includes(parsed.tcTransferType)) {
+      throw new ApiError(400, `${label}: tcTransferType must be one of ${TC_TRANSFER_TYPES.join(", ")}.`);
+    }
+
+    const isProd = parsed.tcTransferType !== "external";
+    const idFields = ["designationId", "departmentId", "sectionId"];
+    if (isProd) {
+      if (row?.newDesignationId === undefined || row.newDesignationId === null || row.newDesignationId === "") {
+        throw new ApiError(400, `${label}: newDesignationId is required.`);
+      }
+      parsed.newDesignationId = row.newDesignationId;
+      idFields.push("newDesignationId");
+    } else {
+      parsed.newDesignationId = null;
+    }
+    idFields.forEach((field) => {
+      const num = Number(parsed[field]);
+      if (!Number.isInteger(num) || num <= 0) {
+        throw new ApiError(400, `${label}: ${field} must be a valid id.`);
+      }
+      parsed[field] = num;
+    });
+    if (!DATE_RE.test(parsed.dateOfResign)) {
+      throw new ApiError(400, `${label}: dates must be in YYYY-MM-DD format.`);
+    }
+
+    parsed.epf = String(parsed.epf).trim();
+    parsed.employeeName = String(parsed.employeeName).trim();
+    parsed.isMo = parsed.tcTransferType === "prod_mo" ? true : parsed.tcTransferType === "prod_tmo" ? false : null;
+    return parsed;
+  });
+}
+
 // All the raw editable inputs the Daily Data Entry form submits; every
 // derived MO/TMO/total is (re)computed server-side, never trusted from the
 // client (see dailyCadreService.computeDerived). plannedMO/plannedTMO are
@@ -180,15 +242,21 @@ function validateDailyRecordBody(req, res, next) {
       "transfer employee",
       true
     );
-    // The same EPF twice (within one tile, or across Resigned + Transfer)
-    // would upsert into a single Employee row, leaving one tile short of
-    // the employees its count says it has.
+    parsed.tcTransferEmployees = validateTcTransferEmployees(body.tcTransferEmployees, parsed.tcTransfer || 0);
+    // Released from Tr. Cen. (what lands in production) is whatever the
+    // Training Center transfer rows say moved over as MO / TMO; external
+    // transfers never reach production.
+    parsed.releasedMO = parsed.tcTransferEmployees.filter((e) => e.tcTransferType === "prod_mo").length;
+    parsed.releasedTMO = parsed.tcTransferEmployees.filter((e) => e.tcTransferType === "prod_tmo").length;
+    // The same EPF twice (within one tile, or across Resigned + Transfer +
+    // Training Center transfer) would upsert into a single Employee row,
+    // leaving one tile short of the employees its count says it has.
     const seenEpfs = new Set();
-    [...parsed.resignedEmployees, ...parsed.transferEmployees].forEach((emp) => {
+    [...parsed.resignedEmployees, ...parsed.transferEmployees, ...parsed.tcTransferEmployees].forEach((emp) => {
       if (seenEpfs.has(emp.epf)) {
         throw new ApiError(
           400,
-          `EPF ${emp.epf} is entered more than once (Resigned/Transfer) - each employee can only be recorded once per entry.`
+          `EPF ${emp.epf} is entered more than once (Resigned/Transfer/Training Center transfer) - each employee can only be recorded once per entry.`
         );
       }
       seenEpfs.add(emp.epf);

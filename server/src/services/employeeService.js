@@ -16,7 +16,27 @@ const {
 } = require("../../models");
 const ApiError = require("../utils/ApiError");
 
-const exitType = (isTransfer) => (isTransfer ? "transfer" : "resign");
+// `kind` is either the legacy boolean (true = Transfer tile, false =
+// Resigned/Terminated tile) or an explicit type string - "tc_transfer" is the
+// Training Center's Transfer to Pro Line popup.
+const exitType = (kind) => (typeof kind === "string" ? kind : kind ? "transfer" : "resign");
+
+// Resignation reason recorded for each Training Center transfer category.
+const TC_TRANSFER_REASONS = {
+  prod_mo: "To Prod as MO",
+  prod_tmo: "To Prod as TMO",
+  external: "External Transfer",
+};
+
+async function resolveTcTransferReasonId(tcTransferType, transaction) {
+  const name = TC_TRANSFER_REASONS[tcTransferType];
+  if (!name) return null;
+  const reason = await ResignationReason.findOne({ where: { resignedReason: name }, transaction });
+  if (!reason) {
+    throw new ApiError(500, `Resignation reason "${name}" is missing - run the latest migrations.`);
+  }
+  return reason.id;
+}
 
 /**
  * Appends to the exit audit trail (exitlogs). Call it BEFORE the change with
@@ -96,7 +116,7 @@ async function refreshLegacyExit(employeeId, transaction) {
   const [current] = await findActiveExits(employeeId, transaction);
   if (current) {
     const linked = !!current.batchId;
-    const isTransfer = current.type === "transfer";
+    const isTransfer = current.type !== "resign";
     await employee.update(
       {
         dateOfResign: current.dateOfExit,
@@ -164,8 +184,9 @@ async function describeBatch(batchId, transaction) {
  *   - the same employee can't sit on one entry as both a transfer and a
  *     resignation: the per-employee Delete/Rejoin routes only know (batch, epf).
  */
-async function assertCanRecordExit(employee, batchId, isTransfer, dateOfExit, transaction) {
-  const type = exitType(isTransfer);
+async function assertCanRecordExit(employee, batchId, kind, dateOfExit, transaction) {
+  const type = exitType(kind);
+  const isTransfer = type !== "resign";
   const active = await findActiveExits(employee.id, transaction);
   // Re-saving an entry resubmits the exits it already holds - e.g. fixing a
   // count on the older entry after the employee has since resigned on a later
@@ -178,7 +199,7 @@ async function assertCanRecordExit(employee, batchId, isTransfer, dateOfExit, tr
         throw new ApiError(
           409,
           `EPF ${employee.epf} (${employee.employeeName}) is already on this daily entry as ${
-            ev.type === "transfer" ? "transferred" : "resigned"
+            ev.type === "resign" ? "resigned" : "transferred"
           }. Remove them from that tile first.`,
         );
       }
@@ -212,8 +233,8 @@ async function assertCanRecordExit(employee, batchId, isTransfer, dateOfExit, tr
  * null) is relinked rather than a second created. Runs inside the caller's
  * transaction, so a failure rolls the whole save back.
  */
-async function recordExit(employeeId, batchId, isTransfer, fields, transaction) {
-  const type = exitType(isTransfer);
+async function recordExit(employeeId, batchId, kind, fields, transaction) {
+  const type = exitType(kind);
   const values = {
     batchId,
     type,
@@ -222,6 +243,7 @@ async function recordExit(employeeId, batchId, isTransfer, fields, transaction) 
     resignationReasonId: fields.resignationReasonId ?? null,
     newDesignationId: fields.newDesignationId ?? null,
     promotedToMo: fields.promotedToMo ?? null,
+    tcTransferType: fields.tcTransferType ?? null,
     needsReview: false,
   };
   const standing = { employeeId, type, rejoinedBatchId: null };
@@ -259,7 +281,12 @@ async function recordExit(employeeId, batchId, isTransfer, fields, transaction) 
  * An employee may already have exits on OTHER entries - see
  * assertCanRecordExit for what's allowed.
  */
-async function syncResignedEmployees(employees, batchId, transaction, isTransfer = false) {
+async function syncResignedEmployees(employees, batchId, transaction, kind = false) {
+  const type = exitType(kind);
+  const isTcTransfer = type === "tc_transfer";
+  // A Training Center transfer row behaves like a Transfer-tile row as far as
+  // the Employee fields go (no join date / birth date / civil status).
+  const isTransfer = type !== "resign";
   const list = Array.isArray(employees) ? employees : [];
   const touched = new Set();
 
@@ -267,12 +294,18 @@ async function syncResignedEmployees(employees, batchId, transaction, isTransfer
     const exitFields = {
       newDesignationId: isTransfer ? emp.newDesignationId ?? null : null,
       dateOfResign: emp.dateOfResign,
-      resignationReasonId: emp.resignationReasonId ?? null,
-      isMo: emp.isMo,
+      // A TC transfer's reason IS its category, so it's resolved here rather
+      // than trusted from the client.
+      resignationReasonId: isTcTransfer
+        ? await resolveTcTransferReasonId(emp.tcTransferType, transaction)
+        : emp.resignationReasonId ?? null,
+      tcTransferType: isTcTransfer ? emp.tcTransferType : null,
+      // External transfers were never in a carder MO/TMO split.
+      isMo: isTcTransfer && emp.tcTransferType === "external" ? null : emp.isMo,
       // Only meaningful for a Transfer-tile row (isTransfer: true) that was
       // originally TMO - whether they're staying (promoted to MO) or
       // leaving. Ignored/null for Resigned/Terminated rows.
-      promotedToMo: isTransfer ? !!emp.promotedToMo : null,
+      promotedToMo: type === "transfer" ? !!emp.promotedToMo : null,
     };
     const fields = {
       employeeName: emp.employeeName,
@@ -297,7 +330,7 @@ async function syncResignedEmployees(employees, batchId, transaction, isTransfer
     // rather than insert a second one and hit the unique index.
     const existing = await Employee.findOne({ where: { epf: emp.epf }, paranoid: false, transaction });
     if (existing && !existing.deletedAt) {
-      await assertCanRecordExit(existing, batchId, isTransfer, emp.dateOfResign, transaction);
+      await assertCanRecordExit(existing, batchId, type, emp.dateOfResign, transaction);
     }
     let employee;
     if (existing) {
@@ -313,14 +346,14 @@ async function syncResignedEmployees(employees, batchId, transaction, isTransfer
         { transaction },
       );
     }
-    await recordExit(employee.id, batchId, isTransfer, exitFields, transaction);
+    await recordExit(employee.id, batchId, type, exitFields, transaction);
     touched.add(employee.id);
   }
 
   const currentEpfs = list.map((emp) => emp.epf);
   const employeeWhere = currentEpfs.length ? { epf: { [Op.notIn]: currentEpfs } } : undefined;
   const trimmed = await findExits(
-    { batchId, type: exitType(isTransfer), rejoinedBatchId: null },
+    { batchId, type, rejoinedBatchId: null },
     { transaction, employeeWhere },
   );
   if (trimmed.length) {
@@ -354,6 +387,8 @@ async function deleteResignedEmployee(epf, batchId, transaction) {
   }
   const { isMo } = exit;
   const isTransfer = exit.type === "transfer";
+  const isTcTransfer = exit.type === "tc_transfer";
+  const tcTransferType = exit.tcTransferType;
   const otherExits = await EmployeeExit.count({
     where: { employeeId: exit.employeeId, id: { [Op.ne]: exit.id } },
     transaction,
@@ -371,7 +406,7 @@ async function deleteResignedEmployee(epf, batchId, transaction) {
     await logExit("employee_deleted", exit, transaction, { employee: exit.employee.get({ plain: true }) });
     await exit.employee.destroy({ transaction, force: true });
   }
-  return { epf, isMo, isTransfer };
+  return { epf, isMo, isTransfer, isTcTransfer, tcTransferType };
 }
 
 /**
@@ -413,6 +448,8 @@ async function rejoinEmployee(epf, batchId, transaction, { rejoinDate = null, re
   }
   const { isMo } = exit;
   const isTransfer = exit.type === "transfer";
+  const isTcTransfer = exit.type === "tc_transfer";
+  const tcTransferType = exit.tcTransferType;
   // rejoinedBatchId is what marks an event rejoined, so it must never stay
   // null here - default to the batch it was recorded on.
   const rejoinValues = {
@@ -423,7 +460,7 @@ async function rejoinEmployee(epf, batchId, transaction, { rejoinDate = null, re
   await logExit("rejoined", exit, transaction, rejoinValues);
   await exit.update(rejoinValues, { transaction });
   await refreshLegacyExit(exit.employeeId, transaction);
-  return { epf, isMo, isTransfer };
+  return { epf, isMo, isTransfer, isTcTransfer, tcTransferType };
 }
 
 /**
@@ -484,6 +521,8 @@ function exitToRecord(exit) {
     batchId: exit.batchId,
     isMo: exit.isMo,
     isTransfer: exit.type === "transfer",
+    isTcTransfer: exit.type === "tc_transfer",
+    tcTransferType: exit.tcTransferType,
     promotedToMo: exit.promotedToMo,
     newDesignationId: exit.newDesignationId,
     dateOfResign: exit.dateOfExit,

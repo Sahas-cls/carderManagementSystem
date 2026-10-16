@@ -308,9 +308,19 @@ export default function DashboardPage() {
         ? Math.round((arr.reduce((s, d) => s + d[key], 0) / arr.length) * 10) /
           10
         : 0;
+    const tcRecruited = trendMonths.reduce(
+      (sum, m) => sum + (m.tcRecruitment || 0),
+      0,
+    );
+    const tcResigned = trendMonths.reduce(
+      (sum, m) => sum + (m.tcResigned || 0),
+      0,
+    );
     return {
       recruited,
       resigned,
+      tcRecruited,
+      tcResigned,
       avgLto: avg(ltoData, "lto"),
       avgAbsenteeism: avg(absenteeismData, "absenteeism"),
     };
@@ -487,7 +497,7 @@ export default function DashboardPage() {
 
       {/* KPI tiles - headline numbers for the selected scope/year, a
           glanceable summary before the charts below. */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mb-2">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 mb-2">
         <StatCard
           label="Current Headcount"
           value={currentHeadcount}
@@ -507,6 +517,11 @@ export default function DashboardPage() {
           label={`Resigned (${selectedYear})`}
           value={kpis.resigned}
           accent={3}
+        />
+        <StatCard
+          label={`TC Recruited / Resigned (${selectedYear})`}
+          value={`${kpis.tcRecruited} / ${kpis.tcResigned}`}
+          accent={0}
         />
         {/* <StatCard
           label={`Avg. LTO Ratio (${selectedYear})`}

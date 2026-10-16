@@ -25,12 +25,14 @@ module.exports = (sequelize, DataTypes) => {
     {
       employeeId: { type: DataTypes.INTEGER, allowNull: false },
       batchId: { type: DataTypes.UUID, allowNull: true },
-      type: { type: DataTypes.ENUM("resign", "transfer"), allowNull: false },
+      type: { type: DataTypes.ENUM("resign", "transfer", "tc_transfer"), allowNull: false },
       isMo: { type: DataTypes.BOOLEAN, allowNull: true },
       dateOfExit: { type: DataTypes.DATEONLY, allowNull: false },
       resignationReasonId: { type: DataTypes.INTEGER, allowNull: true },
       newDesignationId: { type: DataTypes.INTEGER, allowNull: true },
       promotedToMo: { type: DataTypes.BOOLEAN, allowNull: true },
+      // Only for type "tc_transfer" (Training Center Transfer to Pro Line).
+      tcTransferType: { type: DataTypes.ENUM("prod_mo", "prod_tmo", "external"), allowNull: true },
       dateOfRejoin: { type: DataTypes.DATEONLY, allowNull: true },
       rejoinedBatchId: { type: DataTypes.UUID, allowNull: true },
       rejoinedIsMo: { type: DataTypes.BOOLEAN, allowNull: true },

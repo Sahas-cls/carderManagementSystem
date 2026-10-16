@@ -264,6 +264,8 @@ function flattenExitEmployee(e) {
     // Only meaningful on a Transfer row (see Employee.promotedToMo) -
     // carried along on resignedEmployees rows too, harmless (always null).
     promotedToMo: e.promotedToMo,
+    // Only meaningful on a Training Center transfer row.
+    tcTransferType: e.tcTransferType ?? null,
   };
 }
 
@@ -291,6 +293,7 @@ function buildFlatRecord({
   createdAt,
   resignedEmployees = [],
   transferEmployees = [],
+  tcTransferEmployees = [],
   rejoinedEmployees = [],
 }) {
   return {
@@ -304,6 +307,8 @@ function buildFlatRecord({
     resignedEmployees: resignedEmployees.map(flattenExitEmployee),
     // Same, for the Transfer tile's employees (isTransfer: true on Employee).
     transferEmployees: transferEmployees.map(flattenExitEmployee),
+    // Same, for the Training Center's Transfer to Pro Line popup.
+    tcTransferEmployees: tcTransferEmployees.map(flattenExitEmployee),
     // Who's currently credited as Rejoined on this batch (view-only, see
     // ResignedEmployeesListModal/rejoinResignedEmployee) - unlike the two
     // lists above, never sent back by the client, always read from the DB.
@@ -447,6 +452,7 @@ async function createDailyRecord(payload) {
 
     await employeeService.syncResignedEmployees(payload.resignedEmployees, batchId, transaction, false);
     await employeeService.syncResignedEmployees(payload.transferEmployees, batchId, transaction, true);
+    await employeeService.syncResignedEmployees(payload.tcTransferEmployees, batchId, transaction, "tc_transfer");
 
     return buildFlatRecord({
       batchId,
@@ -457,6 +463,7 @@ async function createDailyRecord(payload) {
       createdAt: tc.createdAt,
       resignedEmployees: payload.resignedEmployees,
       transferEmployees: payload.transferEmployees,
+      tcTransferEmployees: payload.tcTransferEmployees,
       // A brand-new batch can't have anyone rejoined-credited to it yet -
       // nothing else could reference this batchId before this transaction.
       rejoinedEmployees: [],
@@ -517,6 +524,7 @@ async function performUpdate(batchId, payload, transaction) {
 
   await employeeService.syncResignedEmployees(payload.resignedEmployees, batchId, transaction, false);
   await employeeService.syncResignedEmployees(payload.transferEmployees, batchId, transaction, true);
+  await employeeService.syncResignedEmployees(payload.tcTransferEmployees, batchId, transaction, "tc_transfer");
 
   // Unlike resigned/transferEmployees above, rejoinedEmployees never comes
   // from the client's payload - it's purely server-side link state (see
@@ -532,6 +540,7 @@ async function performUpdate(batchId, payload, transaction) {
     createdAt: existing.createdAt,
     resignedEmployees: payload.resignedEmployees,
     transferEmployees: payload.transferEmployees,
+    tcTransferEmployees: payload.tcTransferEmployees,
     rejoinedEmployees,
   });
 }
@@ -589,8 +598,23 @@ async function getRawPayloadForBatch(batchId, transaction) {
     tcResigned: tc?.resigned ?? 0,
     tcTransfer: tc?.transferToProLine ?? 0,
     tcAbsent: tc?.absent ?? 0,
-    resignedEmployees: employees.filter((e) => !e.isTransfer).map(flattenExitEmployee),
+    resignedEmployees: employees.filter((e) => !e.isTransfer && !e.isTcTransfer).map(flattenExitEmployee),
     transferEmployees: employees.filter((e) => e.isTransfer).map(flattenExitEmployee),
+    tcTransferEmployees: employees.filter((e) => e.isTcTransfer).map(flattenExitEmployee),
+  };
+}
+
+/**
+ * Raw-payload overrides that drop one Training Center transfer employee: the
+ * list loses the row, tcTransfer goes down by one and, for a row that moved
+ * to production, so does the matching released MO/TMO count.
+ */
+function withoutTcTransferEmployee(raw, epf, tcTransferType) {
+  return {
+    tcTransfer: Math.max(0, raw.tcTransfer - 1),
+    releasedMO: tcTransferType === "prod_mo" ? Math.max(0, raw.releasedMO - 1) : raw.releasedMO,
+    releasedTMO: tcTransferType === "prod_tmo" ? Math.max(0, raw.releasedTMO - 1) : raw.releasedTMO,
+    tcTransferEmployees: raw.tcTransferEmployees.filter((e) => e.epf !== epf),
   };
 }
 
@@ -606,10 +630,16 @@ async function getRawPayloadForBatch(batchId, transaction) {
 async function deleteResignedEmployee(batchId, epf) {
   return sequelize.transaction(async (transaction) => {
     const raw = await getRawPayloadForBatch(batchId, transaction);
-    const { isMo, isTransfer } = await employeeService.deleteResignedEmployee(epf, batchId, transaction);
+    const { isMo, isTransfer, isTcTransfer, tcTransferType } = await employeeService.deleteResignedEmployee(
+      epf,
+      batchId,
+      transaction,
+    );
 
     const payload = { ...raw };
-    if (isTransfer) {
+    if (isTcTransfer) {
+      Object.assign(payload, withoutTcTransferEmployee(raw, epf, tcTransferType));
+    } else if (isTransfer) {
       payload.transferMO = isMo ? Math.max(0, raw.transferMO - 1) : raw.transferMO;
       payload.transferTMO = !isMo ? Math.max(0, raw.transferTMO - 1) : raw.transferTMO;
       payload.transferEmployees = raw.transferEmployees.filter((e) => e.epf !== epf);
@@ -649,6 +679,12 @@ async function rejoinResignedEmployee(batchId, epf, rejoinDate) {
     const linked = await employeeService.findLinkedEmployee(epf, batchId, transaction);
     if (!linked) {
       throw new ApiError(404, `Employee ${epf} is not on record ${batchId}.`);
+    }
+    if (linked.isTcTransfer) {
+      throw new ApiError(
+        400,
+        "A Training Center transfer cannot be rejoined here. Delete the row instead, or record the person on the Rejoined tile.",
+      );
     }
     const { isTransfer } = linked;
 
@@ -803,8 +839,13 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
   const employeeRows = await employeeService.listByBatchIds([...batches.keys()]);
   const employeesByBatch = new Map();
   const transferEmployeesByBatch = new Map();
+  const tcTransferEmployeesByBatch = new Map();
   employeeRows.forEach((row) => {
-    const byBatch = row.isTransfer ? transferEmployeesByBatch : employeesByBatch;
+    const byBatch = row.isTcTransfer
+      ? tcTransferEmployeesByBatch
+      : row.isTransfer
+        ? transferEmployeesByBatch
+        : employeesByBatch;
     if (!byBatch.has(row.batchId)) byBatch.set(row.batchId, []);
     byBatch.get(row.batchId).push(row);
   });
@@ -875,6 +916,7 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
       createdAt: batch.createdAt,
       resignedEmployees: employeesByBatch.get(batchId) || [],
       transferEmployees: transferEmployeesByBatch.get(batchId) || [],
+      tcTransferEmployees: tcTransferEmployeesByBatch.get(batchId) || [],
       rejoinedEmployees: rejoinedEmployeesByBatch.get(batchId) || [],
     });
   });
@@ -929,7 +971,7 @@ async function getCadreTrend({ year, factoryId } = {}) {
     PlannedCarder.findAll({ where, include: [{ model: Budget, as: "budget", paranoid: false }] }),
     AllocatedCurrentCarder.findAll({ where }),
     NewRecruitCarder.findAll({ where }),
-    TrainingCenter.findAll({ where, attributes: ["factoryId", "date", "recruit"] }),
+    TrainingCenter.findAll({ where, attributes: ["factoryId", "date", "recruit", "resigned"] }),
     ResignedCarder.findAll({ where }),
     AbsenteeismCarder.findAll({ where }),
   ]);
@@ -949,6 +991,8 @@ async function getCadreTrend({ year, factoryId } = {}) {
         allocLatest: null,
         recruitment: 0,
         resigned: 0,
+        tcRecruitment: 0,
+        tcResigned: 0,
         absentSum: 0,
         absentCount: 0,
       });
@@ -979,7 +1023,13 @@ async function getCadreTrend({ year, factoryId } = {}) {
     bucket(row.factoryId, monthKey(row.date)).recruitment += row.total;
   });
   tcRows.forEach((row) => {
-    bucket(row.factoryId, monthKey(row.date)).recruitment += row.recruit ?? 0;
+    const b = bucket(row.factoryId, monthKey(row.date));
+    b.recruitment += row.recruit ?? 0;
+    // Also tracked on their own for the Dashboard's Training Center KPI card
+    // (recruitment above still folds TC in, so the trend chart is unchanged;
+    // TC resigns are not part of the cadre-side `resigned` figure).
+    b.tcRecruitment += row.recruit ?? 0;
+    b.tcResigned += row.resigned ?? 0;
   });
   resignedRows.forEach((row) => {
     bucket(row.factoryId, monthKey(row.date)).resigned += row.total;
@@ -1002,6 +1052,8 @@ async function getCadreTrend({ year, factoryId } = {}) {
         allocated: b?.allocLatest?.total ?? 0,
         recruitment: b?.recruitment ?? 0,
         resigned: b?.resigned ?? 0,
+        tcRecruitment: b?.tcRecruitment ?? 0,
+        tcResigned: b?.tcResigned ?? 0,
         absent: b && b.absentCount ? Math.round(b.absentSum / b.absentCount) : 0,
       };
     }),
@@ -1013,6 +1065,8 @@ async function getCadreTrend({ year, factoryId } = {}) {
     allocated: byFactory.reduce((sum, f) => sum + f.months[i].allocated, 0),
     recruitment: byFactory.reduce((sum, f) => sum + f.months[i].recruitment, 0),
     resigned: byFactory.reduce((sum, f) => sum + f.months[i].resigned, 0),
+    tcRecruitment: byFactory.reduce((sum, f) => sum + f.months[i].tcRecruitment, 0),
+    tcResigned: byFactory.reduce((sum, f) => sum + f.months[i].tcResigned, 0),
     absent: byFactory.reduce((sum, f) => sum + f.months[i].absent, 0),
   }));
 
