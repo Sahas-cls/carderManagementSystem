@@ -268,7 +268,7 @@ export default function DashboardPage() {
       trendMonths.map((m) => ({
         date: m.month,
         recruitment: m.recruitment,
-        resigned: m.resigned,
+        resigned: m.resigned + (m.tcResigned || 0),
       })),
     [trendMonths],
   );
@@ -280,9 +280,14 @@ export default function DashboardPage() {
     () =>
       trendMonths.map((m) => ({
         date: m.month,
-        lto: m.allocated
-          ? Math.round((m.resigned / m.allocated) * 1000) / 10
-          : 0,
+        lto:
+          m.allocated + (m.tcAllocated || 0)
+            ? Math.round(
+                (((m.resigned + (m.tcResigned || 0)) /
+                  (m.allocated + (m.tcAllocated || 0))) *
+                  1000),
+              ) / 10
+            : 0,
       })),
     [trendMonths],
   );
@@ -301,7 +306,11 @@ export default function DashboardPage() {
   // Headline KPI tiles for the selected year/scope - recruited/resigned are
   // summed, the two rates are averaged across the same realized months.
   const kpis = useMemo(() => {
-    const recruited = trendMonths.reduce((sum, m) => sum + m.recruitment, 0);
+    // m.recruitment already folds the Training Center's recruits in.
+    const recruited = trendMonths.reduce(
+      (sum, m) => sum + m.recruitment - (m.tcRecruitment || 0),
+      0,
+    );
     const resigned = trendMonths.reduce((sum, m) => sum + m.resigned, 0);
     const avg = (arr, key) =>
       arr.length

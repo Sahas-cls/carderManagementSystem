@@ -1015,7 +1015,7 @@ async function getCadreTrend({ year, factoryId } = {}) {
     PlannedCarder.findAll({ where, include: [{ model: Budget, as: "budget", paranoid: false }] }),
     AllocatedCurrentCarder.findAll({ where }),
     NewRecruitCarder.findAll({ where }),
-    TrainingCenter.findAll({ where, attributes: ["factoryId", "date", "recruit", "resigned"] }),
+    TrainingCenter.findAll({ where, attributes: ["factoryId", "date", "recruit", "resigned", "actualAllocated", "createdAt"] }),
     ResignedCarder.findAll({ where }),
     AbsenteeismCarder.findAll({ where }),
   ]);
@@ -1037,6 +1037,7 @@ async function getCadreTrend({ year, factoryId } = {}) {
         resigned: 0,
         tcRecruitment: 0,
         tcResigned: 0,
+        tcAllocLatest: null,
         absentSum: 0,
         absentCount: 0,
       });
@@ -1074,6 +1075,15 @@ async function getCadreTrend({ year, factoryId } = {}) {
     // TC resigns are not part of the cadre-side `resigned` figure).
     b.tcRecruitment += row.recruit ?? 0;
     b.tcResigned += row.resigned ?? 0;
+    // Training Center headcount snapshot (latest entry of the month), the
+    // denominator companion for the LTO ratio.
+    if (
+      !b.tcAllocLatest ||
+      row.date > b.tcAllocLatest.date ||
+      (row.date === b.tcAllocLatest.date && new Date(row.createdAt) > new Date(b.tcAllocLatest.createdAt))
+    ) {
+      b.tcAllocLatest = { date: row.date, createdAt: row.createdAt, total: row.actualAllocated ?? 0 };
+    }
   });
   resignedRows.forEach((row) => {
     bucket(row.factoryId, monthKey(row.date)).resigned += row.total;
@@ -1098,6 +1108,7 @@ async function getCadreTrend({ year, factoryId } = {}) {
         resigned: b?.resigned ?? 0,
         tcRecruitment: b?.tcRecruitment ?? 0,
         tcResigned: b?.tcResigned ?? 0,
+        tcAllocated: b?.tcAllocLatest?.total ?? 0,
         absent: b && b.absentCount ? Math.round(b.absentSum / b.absentCount) : 0,
       };
     }),
@@ -1111,6 +1122,7 @@ async function getCadreTrend({ year, factoryId } = {}) {
     resigned: byFactory.reduce((sum, f) => sum + f.months[i].resigned, 0),
     tcRecruitment: byFactory.reduce((sum, f) => sum + f.months[i].tcRecruitment, 0),
     tcResigned: byFactory.reduce((sum, f) => sum + f.months[i].tcResigned, 0),
+    tcAllocated: byFactory.reduce((sum, f) => sum + f.months[i].tcAllocated, 0),
     absent: byFactory.reduce((sum, f) => sum + f.months[i].absent, 0),
   }));
 

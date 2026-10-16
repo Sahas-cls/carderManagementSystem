@@ -11,6 +11,7 @@ const {
   ManageServiceRanges,
   ResignationReason,
   ResignedCarder,
+  TrainingCenter,
   PlannedCarder,
   Factory,
 } = require("../../models");
@@ -619,19 +620,20 @@ async function getResignedEmployeesForYear({ factoryId, year, month, include } =
 
   const batchWhere = { date: { [Op.between]: [rangeStart, rangeEnd] } };
   if (factoryId) batchWhere.factoryId = factoryId;
-  const batches = await ResignedCarder.findAll({
-    where: batchWhere,
-    attributes: ["batchId"],
-    raw: true,
-  });
-  const batchIds = [...new Set(batches.map((b) => b.batchId))];
+  // Training Center resignations (type "tc_resign") count too - the analyses
+  // cover production and the Training Center together.
+  const [batches, tcBatches] = await Promise.all([
+    ResignedCarder.findAll({ where: batchWhere, attributes: ["batchId"], raw: true }),
+    TrainingCenter.findAll({ where: batchWhere, attributes: ["batchId"], raw: true }),
+  ]);
+  const batchIds = [...new Set([...batches, ...tcBatches].map((b) => b.batchId))];
   if (!batchIds.length) return { year: y, employees: [] };
 
   // Only true resignations/terminations (type "resign"; legacy rows from
   // before the Transfer tile existed were backfilled as such), and only
   // events still standing - a rejoined one is no longer an exit.
   const exits = await findExits(
-    { batchId: { [Op.in]: batchIds }, type: "resign", rejoinedBatchId: null },
+    { batchId: { [Op.in]: batchIds }, type: { [Op.in]: ["resign", "tc_resign"] }, rejoinedBatchId: null },
     { employeeInclude: include },
   );
   return { year: y, employees: exits.map(exitToRecord) };
