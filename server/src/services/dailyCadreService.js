@@ -171,11 +171,13 @@ function computeDerived(payload) {
   const tcRecruit = n(payload.tcRecruit);
   const tcResigned = n(payload.tcResigned);
   const tcTransfer = n(payload.tcTransfer);
+  const tcRejoined = n(payload.tcRejoined);
   // Actual Allocated is derived, never trusted from the client (same reason
   // as plannedMO/TMO) - opening balance (tcAllocated, itself carried over
   // from the previous entry's Actual Allocated - see getPreviousDailyRecord)
-  // plus new recruits, minus resigned/transferred out.
-  const tcActual = Math.max(0, tcAllocated + tcRecruit - (tcResigned + tcTransfer));
+  // plus new recruits and rejoined trainees, minus resigned/transferred out.
+  const tcNet = tcRecruit + tcRejoined - (tcResigned + tcTransfer);
+  const tcActual = Math.max(0, tcAllocated + tcNet);
   const tcAbsent = n(payload.tcAbsent);
   const tcPresent = Math.max(0, tcActual - tcAbsent);
 
@@ -221,6 +223,8 @@ function computeDerived(payload) {
     tcRecruit,
     tcResigned,
     tcTransfer,
+    tcRejoined,
+    tcNet,
     tcActual,
     tcAbsent,
     tcPresent,
@@ -293,8 +297,10 @@ function buildFlatRecord({
   createdAt,
   resignedEmployees = [],
   transferEmployees = [],
+  tcResignedEmployees = [],
   tcTransferEmployees = [],
   rejoinedEmployees = [],
+  tcRejoinedEmployees = [],
 }) {
   return {
     batchId,
@@ -307,12 +313,15 @@ function buildFlatRecord({
     resignedEmployees: resignedEmployees.map(flattenExitEmployee),
     // Same, for the Transfer tile's employees (isTransfer: true on Employee).
     transferEmployees: transferEmployees.map(flattenExitEmployee),
-    // Same, for the Training Center's Transfer to Pro Line popup.
+    // Same, for the Training Center's Resigned field and Transfer to Pro Line popup.
+    tcResignedEmployees: tcResignedEmployees.map(flattenExitEmployee),
     tcTransferEmployees: tcTransferEmployees.map(flattenExitEmployee),
     // Who's currently credited as Rejoined on this batch (view-only, see
     // ResignedEmployeesListModal/rejoinResignedEmployee) - unlike the two
     // lists above, never sent back by the client, always read from the DB.
     rejoinedEmployees: rejoinedEmployees.map(flattenRejoinedEmployee),
+    // Trainees credited as Rejoined to the Training Center on this batch.
+    tcRejoinedEmployees: tcRejoinedEmployees.map(flattenRejoinedEmployee),
     week: week ? formatWeekLabel(week.week) : "-",
     weekId: week ? week.id : null,
     factory: factory ? factory.factoryName : "Unknown Factory",
@@ -358,6 +367,8 @@ function buildFlatRecord({
     tcr: d.tcRecruit,
     tcs: d.tcResigned,
     tct: d.tcTransfer,
+    tcrj: d.tcRejoined,
+    tcnet: d.tcNet,
     tactual: d.tcActual,
     tcab: d.tcAbsent,
     tcpresent: d.tcPresent,
@@ -443,6 +454,7 @@ async function createDailyRecord(payload) {
         recruit: d.tcRecruit,
         resigned: d.tcResigned,
         transferToProLine: d.tcTransfer,
+        rejoined: d.tcRejoined,
         actualAllocated: d.tcActual,
         absent: d.tcAbsent,
         present: d.tcPresent,
@@ -452,6 +464,7 @@ async function createDailyRecord(payload) {
 
     await employeeService.syncResignedEmployees(payload.resignedEmployees, batchId, transaction, false);
     await employeeService.syncResignedEmployees(payload.transferEmployees, batchId, transaction, true);
+    await employeeService.syncResignedEmployees(payload.tcResignedEmployees, batchId, transaction, "tc_resign");
     await employeeService.syncResignedEmployees(payload.tcTransferEmployees, batchId, transaction, "tc_transfer");
 
     return buildFlatRecord({
@@ -463,6 +476,7 @@ async function createDailyRecord(payload) {
       createdAt: tc.createdAt,
       resignedEmployees: payload.resignedEmployees,
       transferEmployees: payload.transferEmployees,
+      tcResignedEmployees: payload.tcResignedEmployees,
       tcTransferEmployees: payload.tcTransferEmployees,
       // A brand-new batch can't have anyone rejoined-credited to it yet -
       // nothing else could reference this batchId before this transaction.
@@ -515,6 +529,7 @@ async function performUpdate(batchId, payload, transaction) {
       recruit: d.tcRecruit,
       resigned: d.tcResigned,
       transferToProLine: d.tcTransfer,
+      rejoined: d.tcRejoined,
       actualAllocated: d.tcActual,
       absent: d.tcAbsent,
       present: d.tcPresent,
@@ -524,12 +539,14 @@ async function performUpdate(batchId, payload, transaction) {
 
   await employeeService.syncResignedEmployees(payload.resignedEmployees, batchId, transaction, false);
   await employeeService.syncResignedEmployees(payload.transferEmployees, batchId, transaction, true);
+  await employeeService.syncResignedEmployees(payload.tcResignedEmployees, batchId, transaction, "tc_resign");
   await employeeService.syncResignedEmployees(payload.tcTransferEmployees, batchId, transaction, "tc_transfer");
 
   // Unlike resigned/transferEmployees above, rejoinedEmployees never comes
   // from the client's payload - it's purely server-side link state (see
   // rejoinResignedEmployee), so it's read fresh here on every re-persist.
   const rejoinedEmployees = await employeeService.listRejoinedByBatchIds([batchId], transaction);
+  const tcRejoinedEmployees = await employeeService.listRejoinedByBatchIds([batchId], transaction, { tc: true });
 
   return buildFlatRecord({
     batchId,
@@ -540,8 +557,10 @@ async function performUpdate(batchId, payload, transaction) {
     createdAt: existing.createdAt,
     resignedEmployees: payload.resignedEmployees,
     transferEmployees: payload.transferEmployees,
+    tcResignedEmployees: payload.tcResignedEmployees,
     tcTransferEmployees: payload.tcTransferEmployees,
     rejoinedEmployees,
+    tcRejoinedEmployees,
   });
 }
 
@@ -597,9 +616,13 @@ async function getRawPayloadForBatch(batchId, transaction) {
     tcRecruit: tc?.recruit ?? 0,
     tcResigned: tc?.resigned ?? 0,
     tcTransfer: tc?.transferToProLine ?? 0,
+    tcRejoined: tc?.rejoined ?? 0,
     tcAbsent: tc?.absent ?? 0,
-    resignedEmployees: employees.filter((e) => !e.isTransfer && !e.isTcTransfer).map(flattenExitEmployee),
+    resignedEmployees: employees
+      .filter((e) => !e.isTransfer && !e.isTcTransfer && !e.isTcResign)
+      .map(flattenExitEmployee),
     transferEmployees: employees.filter((e) => e.isTransfer).map(flattenExitEmployee),
+    tcResignedEmployees: employees.filter((e) => e.isTcResign).map(flattenExitEmployee),
     tcTransferEmployees: employees.filter((e) => e.isTcTransfer).map(flattenExitEmployee),
   };
 }
@@ -630,7 +653,7 @@ function withoutTcTransferEmployee(raw, epf, tcTransferType) {
 async function deleteResignedEmployee(batchId, epf) {
   return sequelize.transaction(async (transaction) => {
     const raw = await getRawPayloadForBatch(batchId, transaction);
-    const { isMo, isTransfer, isTcTransfer, tcTransferType } = await employeeService.deleteResignedEmployee(
+    const { isMo, isTransfer, isTcTransfer, isTcResign, tcTransferType } = await employeeService.deleteResignedEmployee(
       epf,
       batchId,
       transaction,
@@ -639,6 +662,9 @@ async function deleteResignedEmployee(batchId, epf) {
     const payload = { ...raw };
     if (isTcTransfer) {
       Object.assign(payload, withoutTcTransferEmployee(raw, epf, tcTransferType));
+    } else if (isTcResign) {
+      payload.tcResigned = Math.max(0, raw.tcResigned - 1);
+      payload.tcResignedEmployees = raw.tcResignedEmployees.filter((e) => e.epf !== epf);
     } else if (isTransfer) {
       payload.transferMO = isMo ? Math.max(0, raw.transferMO - 1) : raw.transferMO;
       payload.transferTMO = !isMo ? Math.max(0, raw.transferTMO - 1) : raw.transferTMO;
@@ -686,7 +712,7 @@ async function rejoinResignedEmployee(batchId, epf, rejoinDate) {
         "A Training Center transfer cannot be rejoined here. Delete the row instead, or record the person on the Rejoined tile.",
       );
     }
-    const { isTransfer } = linked;
+    const { isTransfer, isTcResign } = linked;
 
     let targetBatchId = batchId;
     if (!isTransfer) {
@@ -725,7 +751,10 @@ async function rejoinResignedEmployee(batchId, epf, rejoinDate) {
     });
 
     const payload = { ...raw };
-    if (rowIsTransfer) {
+    if (isTcResign) {
+      payload.tcResigned = Math.max(0, raw.tcResigned - 1);
+      payload.tcResignedEmployees = raw.tcResignedEmployees.filter((e) => e.epf !== epf);
+    } else if (rowIsTransfer) {
       payload.transferMO = isMo ? Math.max(0, raw.transferMO - 1) : raw.transferMO;
       payload.transferTMO = !isMo ? Math.max(0, raw.transferTMO - 1) : raw.transferTMO;
       payload.transferEmployees = raw.transferEmployees.filter((e) => e.epf !== epf);
@@ -735,25 +764,26 @@ async function rejoinResignedEmployee(batchId, epf, rejoinDate) {
       payload.resignedEmployees = raw.resignedEmployees.filter((e) => e.epf !== epf);
     }
 
+    // A rejoining trainee is credited to the Training Center's own Rejoined
+    // count, not production's Rejoined MO/TMO.
+    const creditRejoin = (target) =>
+      isTcResign
+        ? { ...target, tcRejoined: target.tcRejoined + 1 }
+        : {
+            ...target,
+            rejoinedMO: isMo ? target.rejoinedMO + 1 : target.rejoinedMO,
+            rejoinedTMO: !isMo ? target.rejoinedTMO + 1 : target.rejoinedTMO,
+          };
+
     if (targetBatchId === batchId) {
-      payload.rejoinedMO = isMo ? raw.rejoinedMO + 1 : raw.rejoinedMO;
-      payload.rejoinedTMO = !isMo ? raw.rejoinedTMO + 1 : raw.rejoinedTMO;
-      return performUpdate(batchId, payload, transaction);
+      return performUpdate(batchId, creditRejoin(payload), transaction);
     }
 
     // Different record for the chosen Rejoined Date - decrement Resigned
     // here, credit Rejoined over there.
     const updatedOriginal = await performUpdate(batchId, payload, transaction);
     const targetRaw = await getRawPayloadForBatch(targetBatchId, transaction);
-    await performUpdate(
-      targetBatchId,
-      {
-        ...targetRaw,
-        rejoinedMO: isMo ? targetRaw.rejoinedMO + 1 : targetRaw.rejoinedMO,
-        rejoinedTMO: !isMo ? targetRaw.rejoinedTMO + 1 : targetRaw.rejoinedTMO,
-      },
-      transaction,
-    );
+    await performUpdate(targetBatchId, creditRejoin(targetRaw), transaction);
     return updatedOriginal;
   });
 }
@@ -839,23 +869,34 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
   const employeeRows = await employeeService.listByBatchIds([...batches.keys()]);
   const employeesByBatch = new Map();
   const transferEmployeesByBatch = new Map();
+  const tcResignedEmployeesByBatch = new Map();
   const tcTransferEmployeesByBatch = new Map();
   employeeRows.forEach((row) => {
     const byBatch = row.isTcTransfer
       ? tcTransferEmployeesByBatch
-      : row.isTransfer
-        ? transferEmployeesByBatch
-        : employeesByBatch;
+      : row.isTcResign
+        ? tcResignedEmployeesByBatch
+        : row.isTransfer
+          ? transferEmployeesByBatch
+          : employeesByBatch;
     if (!byBatch.has(row.batchId)) byBatch.set(row.batchId, []);
     byBatch.get(row.batchId).push(row);
   });
 
-  const rejoinedEmployeeRows = await employeeService.listRejoinedByBatchIds([...batches.keys()]);
-  const rejoinedEmployeesByBatch = new Map();
-  rejoinedEmployeeRows.forEach((row) => {
-    if (!rejoinedEmployeesByBatch.has(row.rejoinedBatchId)) rejoinedEmployeesByBatch.set(row.rejoinedBatchId, []);
-    rejoinedEmployeesByBatch.get(row.rejoinedBatchId).push(row);
-  });
+  const groupRejoined = (rows) => {
+    const byBatch = new Map();
+    rows.forEach((row) => {
+      if (!byBatch.has(row.rejoinedBatchId)) byBatch.set(row.rejoinedBatchId, []);
+      byBatch.get(row.rejoinedBatchId).push(row);
+    });
+    return byBatch;
+  };
+  const rejoinedEmployeesByBatch = groupRejoined(
+    await employeeService.listRejoinedByBatchIds([...batches.keys()]),
+  );
+  const tcRejoinedEmployeesByBatch = groupRejoined(
+    await employeeService.listRejoinedByBatchIds([...batches.keys()], undefined, { tc: true }),
+  );
 
   const records = [...batches.entries()].map(([batchId, batch]) => {
     const pmo = batch.planned?.budget?.moCount ?? 0;
@@ -902,6 +943,7 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
       tcRecruit: batch.tc?.recruit ?? 0,
       tcResigned: batch.tc?.resigned ?? 0,
       tcTransfer: batch.tc?.transferToProLine ?? 0,
+      tcRejoined: batch.tc?.rejoined ?? 0,
       tcActual: batch.tc?.actualAllocated ?? 0,
       tcAbsent: batch.tc?.absent ?? 0,
       tcPresent: batch.tc?.present ?? 0,
@@ -916,7 +958,9 @@ async function listDailyRecords({ year, month, factoryId } = {}) {
       createdAt: batch.createdAt,
       resignedEmployees: employeesByBatch.get(batchId) || [],
       transferEmployees: transferEmployeesByBatch.get(batchId) || [],
+      tcResignedEmployees: tcResignedEmployeesByBatch.get(batchId) || [],
       tcTransferEmployees: tcTransferEmployeesByBatch.get(batchId) || [],
+      tcRejoinedEmployees: tcRejoinedEmployeesByBatch.get(batchId) || [],
       rejoinedEmployees: rejoinedEmployeesByBatch.get(batchId) || [],
     });
   });

@@ -204,6 +204,7 @@ const NUMERIC_FIELDS = [
   "tcRecruit",
   "tcResigned",
   "tcTransfer",
+  "tcRejoined",
   "tcAbsent",
 ];
 
@@ -242,6 +243,14 @@ function validateDailyRecordBody(req, res, next) {
       "transfer employee",
       true
     );
+    // Training Center resignations: the same details as production's
+    // Resigned/Terminated popup, all trainees (TMO).
+    parsed.tcResignedEmployees = validateExitEmployees(
+      body.tcResignedEmployees,
+      0,
+      parsed.tcResigned || 0,
+      "Training Center resigned employee"
+    );
     parsed.tcTransferEmployees = validateTcTransferEmployees(body.tcTransferEmployees, parsed.tcTransfer || 0);
     // Released from Tr. Cen. (what lands in production) is whatever the
     // Training Center transfer rows say moved over as MO / TMO; external
@@ -252,11 +261,16 @@ function validateDailyRecordBody(req, res, next) {
     // Training Center transfer) would upsert into a single Employee row,
     // leaving one tile short of the employees its count says it has.
     const seenEpfs = new Set();
-    [...parsed.resignedEmployees, ...parsed.transferEmployees, ...parsed.tcTransferEmployees].forEach((emp) => {
+    [
+      ...parsed.resignedEmployees,
+      ...parsed.transferEmployees,
+      ...parsed.tcResignedEmployees,
+      ...parsed.tcTransferEmployees,
+    ].forEach((emp) => {
       if (seenEpfs.has(emp.epf)) {
         throw new ApiError(
           400,
-          `EPF ${emp.epf} is entered more than once (Resigned/Transfer/Training Center transfer) - each employee can only be recorded once per entry.`
+          `EPF ${emp.epf} is entered more than once (Resigned/Transfer/Training Center) - each employee can only be recorded once per entry.`
         );
       }
       seenEpfs.add(emp.epf);

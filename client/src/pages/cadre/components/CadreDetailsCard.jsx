@@ -46,6 +46,9 @@ export default function CadreDetailsCard({
   onEmployeeDeleted,
 }) {
   const setField = (field) => (e) => onChange(field, e.target.value);
+  const [showTcResignedPopup, setShowTcResignedPopup] = useState(false);
+  const [showTcResignedListPopup, setShowTcResignedListPopup] = useState(false);
+  const [showTcRejoinedListPopup, setShowTcRejoinedListPopup] = useState(false);
   const [showTcTransferPopup, setShowTcTransferPopup] = useState(false);
   const [showTcTransferListPopup, setShowTcTransferListPopup] = useState(false);
   const [showResignedPopup, setShowResignedPopup] = useState(false);
@@ -81,6 +84,23 @@ export default function CadreDetailsCard({
   };
 
   const handleTcTransferChange = (field) => (e) => onChange(field, e.target.value);
+
+  // Training Center Resigned: same flow as the production Resigned tile (see
+  // handleResignedBlur below), but all trainees (TMO) and kept in its own list.
+  const tcResignedCount = parseInt(form.tcResigned) || 0;
+  const tcResignedEmployees = form.tcResignedEmployees || [];
+  const tcRejoinedCount = parseInt(form.tcRejoined) || 0;
+  const tcRejoinedEmployees = form.tcRejoinedEmployees || [];
+
+  const handleTcResignedBlur = () => {
+    if (tcResignedCount === 0 && tcResignedEmployees.length > 0) {
+      confirmClearEmployees(tcResignedEmployees.length, "Training Center resigned").then((ok) => {
+        if (ok) onChange("tcResignedEmployees", []);
+      });
+    } else if (tcResignedCount > tcResignedEmployees.length) {
+      setShowTcResignedPopup(true);
+    }
+  };
 
   const applyTcTransferRows = (rows) => {
     onChange("tcTransferEmployees", rows);
@@ -139,6 +159,46 @@ export default function CadreDetailsCard({
 
   return (
     <>
+      <ResignedEmployeesModal
+        isOpen={showTcResignedPopup}
+        onClose={() => setShowTcResignedPopup(false)}
+        initialEmployees={tcResignedEmployees}
+        rmo={0}
+        rtmo={tcResignedCount}
+        factoryId={form.factoryId}
+        entryDate={form.date}
+        onSave={(rows) => onChange("tcResignedEmployees", rows)}
+        title="Training Center Resigned Employee Details"
+        label="Training Center resigned"
+      />
+
+      <ResignedEmployeesListModal
+        isOpen={showTcResignedListPopup}
+        onClose={() => setShowTcResignedListPopup(false)}
+        employees={tcResignedEmployees}
+        rmo={0}
+        rtmo={tcResignedCount}
+        rjmo={tcRejoinedCount}
+        rjtmo={0}
+        factoryId={form.factoryId}
+        batchId={batchId}
+        onEmployeesChange={(rows) => onChange("tcResignedEmployees", rows)}
+        onCountsChange={(_mo, newTmo) => onChange("tcResigned", String(newTmo))}
+        onRejoinedCountsChange={(a, b) => onChange("tcRejoined", String(a + b))}
+        onDeleted={onEmployeeDeleted}
+        isTcResign
+      />
+
+      <RejoinedEmployeesListModal
+        isOpen={showTcRejoinedListPopup}
+        onClose={() => setShowTcRejoinedListPopup(false)}
+        employees={tcRejoinedEmployees}
+        rjmo={tcRejoinedCount}
+        rjtmo={0}
+        title="Training Center Rejoined Employees"
+        trainingCenter
+      />
+
       <TcTransferEmployeesModal
         isOpen={showTcTransferPopup}
         onClose={() => setShowTcTransferPopup(false)}
@@ -574,13 +634,50 @@ export default function CadreDetailsCard({
               value={form.tcRecruit}
               onChange={setField("tcRecruit")}
             />
-            <GroupField
-              label="Resigned"
-              type="number"
-              min="0"
-              value={form.tcResigned}
-              onChange={setField("tcResigned")}
-            />
+            <div className="relative">
+              <GroupField
+                label="Rejoined"
+                total
+                readOnly
+                value={tcRejoinedCount}
+              />
+              <button
+                type="button"
+                onClick={() => setShowTcRejoinedListPopup(true)}
+                disabled={tcRejoinedEmployees.length === 0}
+                title={
+                  tcRejoinedEmployees.length === 0
+                    ? "No Training Center rejoined employees on file yet"
+                    : "View Training Center rejoined employees"
+                }
+                className="absolute cursor-pointer top-0 right-0 p-0.5 rounded-full bg-white text-xs flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <FaEye color="blue" size={16} />
+              </button>
+            </div>
+            <div className="relative">
+              <GroupField
+                label="Resigned"
+                type="number"
+                min="0"
+                value={form.tcResigned}
+                onChange={setField("tcResigned")}
+                onBlur={handleTcResignedBlur}
+              />
+              <button
+                type="button"
+                onClick={() => setShowTcResignedListPopup(true)}
+                disabled={tcResignedEmployees.length === 0}
+                title={
+                  tcResignedEmployees.length === 0
+                    ? "No Training Center resigned employees on file yet"
+                    : "View / delete / rejoin Training Center resigned employees"
+                }
+                className="absolute cursor-pointer top-0 right-0 p-0.5 rounded-full bg-white text-xs flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <FaEye color="blue" size={16} />
+              </button>
+            </div>
             <div className="relative">
               <GroupField
                 label="Transfer to Pro Line"
@@ -604,6 +701,12 @@ export default function CadreDetailsCard({
                 <FaEye color="blue" size={16} />
               </button>
             </div>
+            <GroupField
+              label="Net Incr./Decr."
+              total
+              readOnly
+              value={totals.tcNet}
+            />
             <GroupField
               label="Actual Allocated"
               total

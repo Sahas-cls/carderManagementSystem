@@ -13,7 +13,7 @@ import { getSections } from "../../../services/sectionServices";
  * there's nothing to undo from this view; the Resigned/Terminated tile's own
  * Rejoin button is the only way this list changes.
  */
-export default function RejoinedEmployeesListModal({ isOpen, onClose, employees, rjmo, rjtmo }) {
+export default function RejoinedEmployeesListModal({ isOpen, onClose, employees, rjmo, rjtmo, title, trainingCenter = false }) {
   const [designations, setDesignations] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [sections, setSections] = useState([]);
@@ -57,7 +57,7 @@ export default function RejoinedEmployeesListModal({ isOpen, onClose, employees,
 
       <div className="relative bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 p-6 max-h-[90vh] flex flex-col">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold text-gray-800">Rejoined Employees</h2>
+          <h2 className="text-xl font-semibold text-gray-800">{title || "Rejoined Employees"}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -66,7 +66,15 @@ export default function RejoinedEmployeesListModal({ isOpen, onClose, employees,
         </div>
 
         <p className="text-sm text-gray-600 mb-4">
-          Currently credited as Rejoined on this entry - <strong>{rjmo}</strong> MO, <strong>{rjtmo}</strong> TMO.
+          Currently credited as Rejoined on this entry -{" "}
+          {trainingCenter ? (
+            <strong>{rjmo}</strong>
+          ) : (
+            <>
+              <strong>{rjmo}</strong> MO, <strong>{rjtmo}</strong> TMO
+            </>
+          )}
+          .
         </p>
 
         <div className="overflow-auto flex-1 -mx-1 px-1">

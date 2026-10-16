@@ -172,7 +172,7 @@ export default function DailyRecordsTable({
               <th className={TH} colSpan={3}>
                 Present MO/TMO
               </th>
-              <th className={TH} colSpan={8}>
+              <th className={TH} colSpan={10}>
                 TMO_Training Center.
               </th>
               {canEdit && (
@@ -457,6 +457,13 @@ export default function DailyRecordsTable({
                 className={TH}
               />
               <SortableTH
+                label="Rejoined"
+                sortKey="tcrj"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
                 label="Resigned"
                 sortKey="tcs"
                 currentSort={sort}
@@ -466,6 +473,13 @@ export default function DailyRecordsTable({
               <SortableTH
                 label="Transfer to Pro Line"
                 sortKey="tct"
+                currentSort={sort}
+                onSort={toggleSort}
+                className={TH}
+              />
+              <SortableTH
+                label="Net Incr./Decr."
+                sortKey="tcnet"
                 currentSort={sort}
                 onSort={toggleSort}
                 className={TH}
@@ -497,7 +511,7 @@ export default function DailyRecordsTable({
             {records.length === 0 ? (
               <tr>
                 <td
-                  colSpan={canEdit ? 47 : 46}
+                  colSpan={canEdit ? 48 : 47}
                   className="p-8 text-center text-slate-400 border border-slate-400"
                 >
                   No records for the selected month. Try a different month
@@ -556,8 +570,10 @@ export default function DailyRecordsTable({
                   <td className={TD}>{r.tcp}</td>
                   <td className={TD}>{r.tca}</td>
                   <td className={TD}>{r.tcr}</td>
+                  <td className={TD}>{r.tcrj}</td>
                   <td className={TD}>{r.tcs}</td>
                   <td className={TD}>{r.tct}</td>
+                  <td className={TD}>{r.tcnet}</td>
                   <td className={TD}>{r.tactual}</td>
                   <td className={TD}>{r.tcab}</td>
                   <td className={`${TD} font-bold`}>{r.tcpresent}</td>
@@ -712,8 +728,10 @@ export default function DailyRecordsTable({
                   —
                 </td>
                 <td className={TD}>{sum("tcr")}</td>
+                <td className={TD}>{sum("tcrj")}</td>
                 <td className={TD}>{sum("tcs")}</td>
                 <td className={TD}>{sum("tct")}</td>
+                <td className={TD}>{sum("tcnet")}</td>
                 <td
                   className={TD_NA}
                   title="Not totaled - a planned/allocated snapshot, not a daily flow."

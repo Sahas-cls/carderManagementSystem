@@ -26,7 +26,7 @@ module.exports = {
     const have = new Set(existing.map((r) => r.resignedReason));
     const rows = names
       .filter((name) => !have.has(name))
-      .map((resignedReason) => ({ resignedReason, transferRelated: false, createdAt: now, updatedAt: now }));
+      .map((resignedReason) => ({ resignedReason, transferRelated: true, createdAt: now, updatedAt: now }));
     if (rows.length) await queryInterface.bulkInsert("resignationreasons", rows);
   },
   async down(queryInterface, Sequelize) {

@@ -25,7 +25,7 @@ module.exports = (sequelize, DataTypes) => {
     {
       employeeId: { type: DataTypes.INTEGER, allowNull: false },
       batchId: { type: DataTypes.UUID, allowNull: true },
-      type: { type: DataTypes.ENUM("resign", "transfer", "tc_transfer"), allowNull: false },
+      type: { type: DataTypes.ENUM("resign", "transfer", "tc_transfer", "tc_resign"), allowNull: false },
       isMo: { type: DataTypes.BOOLEAN, allowNull: true },
       dateOfExit: { type: DataTypes.DATEONLY, allowNull: false },
       resignationReasonId: { type: DataTypes.INTEGER, allowNull: true },

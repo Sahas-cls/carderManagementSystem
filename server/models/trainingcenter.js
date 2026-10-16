@@ -50,6 +50,13 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: 0,
       },
+      // Trainees who resigned from the Training Center earlier and rejoined it
+      // (credited to the entry covering the rejoin date).
+      rejoined: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      },
       transferToProLine: {
         type: DataTypes.INTEGER,
         allowNull: false,

@@ -21,6 +21,11 @@ const ApiError = require("../utils/ApiError");
 // Training Center's Transfer to Pro Line popup.
 const exitType = (kind) => (typeof kind === "string" ? kind : kind ? "transfer" : "resign");
 
+// Exit kinds shaped like a resignation (Resigned/Terminated tile, and the
+// Training Center's Resigned field) vs. like a transfer.
+const isResignType = (type) => type === "resign" || type === "tc_resign";
+const isTransferType = (type) => type === "transfer" || type === "tc_transfer";
+
 // Resignation reason recorded for each Training Center transfer category.
 const TC_TRANSFER_REASONS = {
   prod_mo: "To Prod as MO",
@@ -116,7 +121,7 @@ async function refreshLegacyExit(employeeId, transaction) {
   const [current] = await findActiveExits(employeeId, transaction);
   if (current) {
     const linked = !!current.batchId;
-    const isTransfer = current.type !== "resign";
+    const isTransfer = isTransferType(current.type);
     await employee.update(
       {
         dateOfResign: current.dateOfExit,
@@ -186,7 +191,7 @@ async function describeBatch(batchId, transaction) {
  */
 async function assertCanRecordExit(employee, batchId, kind, dateOfExit, transaction) {
   const type = exitType(kind);
-  const isTransfer = type !== "resign";
+  const isTransfer = isTransferType(type);
   const active = await findActiveExits(employee.id, transaction);
   // Re-saving an entry resubmits the exits it already holds - e.g. fixing a
   // count on the older entry after the employee has since resigned on a later
@@ -199,13 +204,13 @@ async function assertCanRecordExit(employee, batchId, kind, dateOfExit, transact
         throw new ApiError(
           409,
           `EPF ${employee.epf} (${employee.employeeName}) is already on this daily entry as ${
-            ev.type === "resign" ? "resigned" : "transferred"
+            isResignType(ev.type) ? "resigned" : "transferred"
           }. Remove them from that tile first.`,
         );
       }
       continue;
     }
-    const evIsResign = ev.type === "resign";
+    const evIsResign = isResignType(ev.type);
     // Same EPF resigned twice, or a transfer/second exit dated on or after a
     // resignation (they'd already left), or a resignation dated on or before
     // a transfer it supposedly follows, or the same transfer entered twice.
@@ -285,8 +290,9 @@ async function syncResignedEmployees(employees, batchId, transaction, kind = fal
   const type = exitType(kind);
   const isTcTransfer = type === "tc_transfer";
   // A Training Center transfer row behaves like a Transfer-tile row as far as
-  // the Employee fields go (no join date / birth date / civil status).
-  const isTransfer = type !== "resign";
+  // the Employee fields go (no join date / birth date / civil status); a
+  // Training Center resigned row behaves like a Resigned/Terminated one.
+  const isTransfer = isTransferType(type);
   const list = Array.isArray(employees) ? employees : [];
   const touched = new Set();
 
@@ -388,6 +394,7 @@ async function deleteResignedEmployee(epf, batchId, transaction) {
   const { isMo } = exit;
   const isTransfer = exit.type === "transfer";
   const isTcTransfer = exit.type === "tc_transfer";
+  const isTcResign = exit.type === "tc_resign";
   const tcTransferType = exit.tcTransferType;
   const otherExits = await EmployeeExit.count({
     where: { employeeId: exit.employeeId, id: { [Op.ne]: exit.id } },
@@ -406,7 +413,7 @@ async function deleteResignedEmployee(epf, batchId, transaction) {
     await logExit("employee_deleted", exit, transaction, { employee: exit.employee.get({ plain: true }) });
     await exit.employee.destroy({ transaction, force: true });
   }
-  return { epf, isMo, isTransfer, isTcTransfer, tcTransferType };
+  return { epf, isMo, isTransfer, isTcTransfer, isTcResign, tcTransferType };
 }
 
 /**
@@ -449,6 +456,7 @@ async function rejoinEmployee(epf, batchId, transaction, { rejoinDate = null, re
   const { isMo } = exit;
   const isTransfer = exit.type === "transfer";
   const isTcTransfer = exit.type === "tc_transfer";
+  const isTcResign = exit.type === "tc_resign";
   const tcTransferType = exit.tcTransferType;
   // rejoinedBatchId is what marks an event rejoined, so it must never stay
   // null here - default to the batch it was recorded on.
@@ -460,7 +468,7 @@ async function rejoinEmployee(epf, batchId, transaction, { rejoinDate = null, re
   await logExit("rejoined", exit, transaction, rejoinValues);
   await exit.update(rejoinValues, { transaction });
   await refreshLegacyExit(exit.employeeId, transaction);
-  return { epf, isMo, isTransfer, isTcTransfer, tcTransferType };
+  return { epf, isMo, isTransfer, isTcTransfer, isTcResign, tcTransferType };
 }
 
 /**
@@ -522,6 +530,7 @@ function exitToRecord(exit) {
     isMo: exit.isMo,
     isTransfer: exit.type === "transfer",
     isTcTransfer: exit.type === "tc_transfer",
+    isTcResign: exit.type === "tc_resign",
     tcTransferType: exit.tcTransferType,
     promotedToMo: exit.promotedToMo,
     newDesignationId: exit.newDesignationId,
@@ -552,9 +561,13 @@ async function listByBatchIds(batchIds, transaction) {
  * rejoined into a batch and later resigned again still shows there (the
  * Rejoined count they were credited with is still on that batch).
  */
-async function listRejoinedByBatchIds(batchIds, transaction) {
+async function listRejoinedByBatchIds(batchIds, transaction, { tc = false } = {}) {
   if (!batchIds.length) return [];
-  const exits = await findExits({ rejoinedBatchId: { [Op.in]: batchIds } }, { transaction });
+  // The Training Center's rejoined trainees and production's are separate lists.
+  const exits = await findExits(
+    { rejoinedBatchId: { [Op.in]: batchIds }, type: tc ? "tc_resign" : { [Op.ne]: "tc_resign" } },
+    { transaction },
+  );
   return exits.map(exitToRecord);
 }
 

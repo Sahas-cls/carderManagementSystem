@@ -262,6 +262,28 @@ export default function DailyEntryPage() {
       return;
     }
 
+    const tcResignedCount = Number(form.tcResigned) || 0;
+    const tcResignedEmployees = form.tcResignedEmployees || [];
+    if (tcResignedCount > 0 && tcResignedEmployees.length !== tcResignedCount) {
+      notifyError(
+        `Please enter details for all ${tcResignedCount} Training Center resigned employee(s) (see the Training Center Resigned popup) before submitting.`,
+        "Validation Error",
+      );
+      return;
+    }
+    if (
+      tcResignedCount > 0 &&
+      tcResignedEmployees.some((emp) =>
+        REQUIRED_EMPLOYEE_FIELDS.some((field) => !emp[field]),
+      )
+    ) {
+      notifyError(
+        "One or more Training Center resigned employee rows are missing details - please complete them before submitting.",
+        "Validation Error",
+      );
+      return;
+    }
+
     const tcTransferCount = Number(form.tcTransfer) || 0;
     const tcTransferEmployees = form.tcTransferEmployees || [];
     const REQUIRED_TC_TRANSFER_FIELDS = [
@@ -301,6 +323,7 @@ export default function DailyEntryPage() {
     const submittedEpfs = [
       ...(resignedTotal > 0 ? resignedEmployees : []),
       ...(transferTotal > 0 ? transferEmployees : []),
+      ...(tcResignedCount > 0 ? tcResignedEmployees : []),
       ...(tcTransferCount > 0 ? tcTransferEmployees : []),
     ].map((emp) => String(emp.epf ?? "").trim());
     const duplicateEpf = submittedEpfs.find(

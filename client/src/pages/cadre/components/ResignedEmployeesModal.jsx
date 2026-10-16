@@ -126,11 +126,15 @@ export default function ResignedEmployeesModal({
   entryDate,
   onSave,
   isTransfer = false,
+  // Overrides for the Training Center's Resigned field, which reuses this
+  // popup as-is (rmo = 0, rtmo = the TC Resigned count).
+  title,
+  label,
 }) {
-  const employeeLabel = isTransfer ? "transfer" : "resigned";
-  const modalTitle = isTransfer
-    ? "Transfer Employee Details"
-    : "Resigned / Terminated Employee Details";
+  const employeeLabel = label || (isTransfer ? "transfer" : "resigned");
+  const modalTitle =
+    title ||
+    (isTransfer ? "Transfer Employee Details" : "Resigned / Terminated Employee Details");
   const total = rmo + rtmo;
   const [rows, setRows] = useState([]);
   const [activeIndex, setActiveIndex] = useState(0);

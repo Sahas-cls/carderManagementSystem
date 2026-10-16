@@ -74,9 +74,16 @@ export default function ResignedEmployeesListModal({
   onRejoinedCountsChange,
   onDeleted,
   isTransfer = false,
+  // The Training Center's Resigned list: same rows/actions, but the server
+  // reports its count as `tcs` and a rejoin is credited to `tcrj`.
+  isTcResign = false,
 }) {
-  const employeeLabel = isTransfer ? "transfer" : "resigned";
-  const modalTitle = isTransfer ? "Transfer Employees" : "Resigned / Terminated Employees";
+  const employeeLabel = isTcResign ? "Training Center resigned" : isTransfer ? "transfer" : "resigned";
+  const modalTitle = isTcResign
+    ? "Training Center Resigned Employees"
+    : isTransfer
+      ? "Transfer Employees"
+      : "Resigned / Terminated Employees";
   const [error, setError] = useState("");
   const [deletingEpf, setDeletingEpf] = useState(null);
   const [rejoiningEpf, setRejoiningEpf] = useState(null);
@@ -153,8 +160,8 @@ export default function ResignedEmployeesListModal({
       setDeletingEpf(null);
       onEmployeesChange(employees.filter((e) => e.epf !== emp.epf));
       onCountsChange(
-        isTransfer ? result.tfmo : result.rmo,
-        isTransfer ? result.tftmo : result.rtmo,
+        isTransfer ? result.tfmo : isTcResign ? 0 : result.rmo,
+        isTransfer ? result.tftmo : isTcResign ? result.tcs : result.rtmo,
       );
       // The server just hard-deleted the employee and re-persisted this
       // batch's counts - refresh the Daily Data Records table so it doesn't
@@ -187,7 +194,7 @@ export default function ResignedEmployeesListModal({
       const today = new Date().toISOString().slice(0, 10);
       const { value, isConfirmed } = await Swal.fire({
         title: `Rejoin ${emp.employeeName || "this employee"}?`,
-        html: `EPF <b>${emp.epf}</b> will be reactivated and counted as Rejoined ${emp.isMo ? "MO" : "TMO"} on the date below.`,
+        html: `EPF <b>${emp.epf}</b> will be reactivated and counted as Rejoined ${isTcResign ? "to the Training Center" : emp.isMo ? "MO" : "TMO"} on the date below.`,
         icon: "question",
         input: "date",
         inputLabel: "Rejoined Date",
@@ -231,10 +238,10 @@ export default function ResignedEmployeesListModal({
       }
       onEmployeesChange(employees.filter((e) => e.epf !== emp.epf));
       onCountsChange(
-        isTransfer ? result.tfmo : result.rmo,
-        isTransfer ? result.tftmo : result.rtmo,
+        isTransfer ? result.tfmo : isTcResign ? 0 : result.rmo,
+        isTransfer ? result.tftmo : isTcResign ? result.tcs : result.rtmo,
       );
-      onRejoinedCountsChange?.(result.rjmo, result.rjtmo);
+      onRejoinedCountsChange?.(isTcResign ? result.tcrj : result.rjmo, isTcResign ? 0 : result.rjtmo);
       // The server just reactivated the employee and re-persisted this
       // batch's counts - refresh the Daily Data Records table so it doesn't
       // sit stale until the page is reloaded.

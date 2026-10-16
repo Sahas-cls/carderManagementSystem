@@ -47,6 +47,9 @@ export const EMPTY_CADRE_FORM = {
   tcRecruit: 0,
   tcResigned: 0,
   tcTransfer: 0,
+  // Trainees who resigned from the Training Center and came back - set by the
+  // Rejoin button in the TC Resigned list, like production's Rejoined.
+  tcRejoined: 0,
   tcAbsent: 0,
   // Details for each Resigned/Terminated employee (see ResignedEmployeesModal
   // in CadreDetailsCard.jsx), one row per resignedMO+resignedTMO count.
@@ -59,6 +62,10 @@ export const EMPTY_CADRE_FORM = {
   // Training Center "Transfer to Pro Line" - one row per tcTransfer count,
   // each tagged with tcTransferType (prod_mo / prod_tmo / external).
   tcTransferEmployees: [],
+  // Training Center Resigned - one row per tcResigned count (all trainees).
+  tcResignedEmployees: [],
+  // Who's currently credited as Rejoined to the Training Center (view-only).
+  tcRejoinedEmployees: [],
   // Who's currently credited as Rejoined on this record (view-only - see
   // CadreDetailsCard.jsx's Rejoined tile eye icon) - always read from the
   // server (recordToForm below), never built or sent by this form itself.
@@ -148,9 +155,11 @@ export function computeTotals(form) {
   // itself carried over from the previous entry - see DailyEntryPage.jsx's
   // prefill effect) plus new recruits, minus resigned/transferred out.
   // Mirrors dailyCadreService.computeDerived server-side (authoritative).
+  const tcNet =
+    n(form.tcRecruit) + n(form.tcRejoined) - (n(form.tcResigned) + n(form.tcTransfer));
   const tcActual = Math.max(
     0,
-    n(form.tcAllocated) + n(form.tcRecruit) - (n(form.tcResigned) + n(form.tcTransfer))
+    n(form.tcAllocated) + n(form.tcRecruit) + n(form.tcRejoined) - (n(form.tcResigned) + n(form.tcTransfer))
   );
   const tcPresent = Math.max(0, tcActual - n(form.tcAbsent));
 
@@ -175,6 +184,7 @@ export function computeTotals(form) {
     presentMO,
     presentTMO,
     presentTotal,
+    tcNet,
     tcActual,
     tcPresent,
   };
@@ -214,10 +224,12 @@ export function buildPayload(form) {
     tcRecruit: n(form.tcRecruit),
     tcResigned: n(form.tcResigned),
     tcTransfer: n(form.tcTransfer),
+    tcRejoined: n(form.tcRejoined),
     tcAbsent: n(form.tcAbsent),
     resignedEmployees: form.resignedEmployees || [],
     transferEmployees: form.transferEmployees || [],
     tcTransferEmployees: form.tcTransferEmployees || [],
+    tcResignedEmployees: form.tcResignedEmployees || [],
   };
   if (form.allocActualMO !== "") payload.allocActualMO = n(form.allocActualMO);
   if (form.allocActualTMO !== "") payload.allocActualTMO = n(form.allocActualTMO);
@@ -250,10 +262,13 @@ export function recordToForm(record) {
     tcRecruit: record.tcr || 0,
     tcResigned: record.tcs || 0,
     tcTransfer: record.tct || 0,
+    tcRejoined: record.tcrj || 0,
     tcAbsent: record.tcab || 0,
     resignedEmployees: record.resignedEmployees || [],
     transferEmployees: record.transferEmployees || [],
     tcTransferEmployees: record.tcTransferEmployees || [],
+    tcResignedEmployees: record.tcResignedEmployees || [],
+    tcRejoinedEmployees: record.tcRejoinedEmployees || [],
     rejoinedEmployees: record.rejoinedEmployees || [],
   };
 }

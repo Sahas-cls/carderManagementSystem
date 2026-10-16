@@ -497,7 +497,7 @@ export default function DashboardPage() {
 
       {/* KPI tiles - headline numbers for the selected scope/year, a
           glanceable summary before the charts below. */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 mb-2">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mb-2">
         <StatCard
           label="Current Headcount"
           value={currentHeadcount}
@@ -510,18 +510,21 @@ export default function DashboardPage() {
         />
         <StatCard
           label={`Recruited (${selectedYear})`}
-          value={kpis.recruited}
+          value={kpis.recruited + kpis.tcRecruited}
           accent={2}
+          breakdown={[
+            { label: "Production", value: kpis.recruited },
+            { label: "Training Center", value: kpis.tcRecruited },
+          ]}
         />
         <StatCard
           label={`Resigned (${selectedYear})`}
-          value={kpis.resigned}
+          value={kpis.resigned + kpis.tcResigned}
           accent={3}
-        />
-        <StatCard
-          label={`TC Recruited / Resigned (${selectedYear})`}
-          value={`${kpis.tcRecruited} / ${kpis.tcResigned}`}
-          accent={0}
+          breakdown={[
+            { label: "Production", value: kpis.resigned },
+            { label: "Training Center", value: kpis.tcResigned },
+          ]}
         />
         {/* <StatCard
           label={`Avg. LTO Ratio (${selectedYear})`}
