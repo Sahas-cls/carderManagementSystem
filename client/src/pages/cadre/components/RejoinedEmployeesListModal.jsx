@@ -1,19 +1,34 @@
 import { useEffect, useMemo, useState } from "react";
+import Swal from "sweetalert2";
 import Button from "../../../components/ui/Button";
 import { getDesignations } from "../../../services/designationServices";
 import { getDepartments } from "../../../services/departmentServices";
 import { getSections } from "../../../services/sectionServices";
+import { cancelRejoinedEmployee } from "../../../services/dailyCadreServices";
 
 /**
  * Opened via the eye icon next to the Rejoined MO/TMO fields (see
  * CadreDetailsCard.jsx) - a plain, view-only list of everyone currently
  * credited as Rejoined on this daily entry (see
- * dailyCadreService.rejoinResignedEmployee / listRejoinedByBatchIds). No
- * Delete or Rejoin actions here - unlike ResignedEmployeesListModal.jsx,
- * there's nothing to undo from this view; the Resigned/Terminated tile's own
- * Rejoin button is the only way this list changes.
+ * dailyCadreService.rejoinResignedEmployee / listRejoinedByBatchIds). The only
+ * action is Cancel Rejoin (saved entries only): it puts the employee back on
+ * their original Resigned/Transfer list and takes the Rejoined credit off this
+ * entry (dailyCadreService.cancelRejoinedEmployee). `onCancelled` gets the
+ * server's updated record for this entry.
  */
-export default function RejoinedEmployeesListModal({ isOpen, onClose, employees, rjmo, rjtmo, title, trainingCenter = false }) {
+export default function RejoinedEmployeesListModal({
+  isOpen,
+  onClose,
+  employees,
+  rjmo,
+  rjtmo,
+  title,
+  trainingCenter = false,
+  batchId,
+  onCancelled,
+}) {
+  const [cancellingEpf, setCancellingEpf] = useState(null);
+  const [error, setError] = useState("");
   const [designations, setDesignations] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [sections, setSections] = useState([]);
@@ -49,16 +64,44 @@ export default function RejoinedEmployeesListModal({ isOpen, onClose, employees,
     return (id) => map.get(String(id)) || `#${id}`;
   }, [sections]);
 
+  const close = () => {
+    setError("");
+    onClose();
+  };
+
+  const handleCancelRejoin = async (emp) => {
+    if (cancellingEpf) return;
+    const { isConfirmed } = await Swal.fire({
+      title: `Cancel rejoin of ${emp.employeeName || "this employee"}?`,
+      html: `EPF <b>${emp.epf}</b> will go back to ${trainingCenter ? "Training Center resigned" : "resigned / transferred"} on ${emp.dateOfResign || "their original"} entry, and this entry's Rejoined count will go down by one.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Cancel rejoin",
+      cancelButtonText: "Keep rejoined",
+    });
+    if (!isConfirmed) return;
+    setCancellingEpf(emp.epf);
+    setError("");
+    try {
+      const result = await cancelRejoinedEmployee(batchId, emp.epf);
+      onCancelled?.(result);
+    } catch (err) {
+      setError(err.message || "Failed to cancel this rejoin.");
+    } finally {
+      setCancellingEpf(null);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={close} />
 
       <div className="relative bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 p-6 max-h-[90vh] flex flex-col">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold text-gray-800">{title || "Rejoined Employees"}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+          <button onClick={close} className="text-gray-400 hover:text-gray-600 transition-colors">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -77,6 +120,8 @@ export default function RejoinedEmployeesListModal({ isOpen, onClose, employees,
           .
         </p>
 
+        {error && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">{error}</div>}
+
         <div className="overflow-auto flex-1 -mx-1 px-1">
           {employees.length === 0 ? (
             <div className="p-8 text-center text-sm text-gray-400 border border-dashed border-gray-300 rounded-md">
@@ -94,6 +139,7 @@ export default function RejoinedEmployeesListModal({ isOpen, onClose, employees,
                   <th className="p-2 border border-slate-200">Section</th>
                   <th className="p-2 border border-slate-200">Date of Resign</th>
                   <th className="p-2 border border-slate-200">Date of Rejoin</th>
+                  {batchId && <th className="p-2 border border-slate-200 text-center">Action</th>}
                 </tr>
               </thead>
               <tbody>
@@ -111,6 +157,18 @@ export default function RejoinedEmployeesListModal({ isOpen, onClose, employees,
                     <td className="p-2 border border-slate-200">{sectionName(emp.sectionId)}</td>
                     <td className="p-2 border border-slate-200">{emp.dateOfResign || "-"}</td>
                     <td className="p-2 border border-slate-200">{emp.dateOfRejoin || "-"}</td>
+                    {batchId && (
+                      <td className="p-2 border border-slate-200 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleCancelRejoin(emp)}
+                          disabled={!!cancellingEpf}
+                          className="px-2 py-1 rounded border border-red-200 bg-red-50 text-red-700 text-[11px] hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                        >
+                          {cancellingEpf === emp.epf ? "Cancelling..." : "Cancel Rejoin"}
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -119,7 +177,7 @@ export default function RejoinedEmployeesListModal({ isOpen, onClose, employees,
         </div>
 
         <div className="flex justify-end mt-6">
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={close}>
             Close
           </Button>
         </div>

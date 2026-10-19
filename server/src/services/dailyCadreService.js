@@ -788,6 +788,56 @@ async function rejoinResignedEmployee(batchId, epf, rejoinDate) {
   });
 }
 
+/**
+ * Cancels a rejoin - backs the per-employee Cancel Rejoin button in
+ * RejoinedEmployeesListModal.jsx, the inverse of rejoinResignedEmployee above.
+ * `batchId` is the entry the Rejoined credit sits on. The exit event is put
+ * back to standing (employeeService.cancelRejoin), so the employee returns to
+ * their original entry's Resigned/Transfer list: that entry's Resigned (or
+ * Transfer / Training Center Resigned) count goes up by one and this entry's
+ * Rejoined count goes down by one. They can be the same entry, in which case
+ * both changes land in one re-persist. Returns the updated `batchId` record.
+ */
+async function cancelRejoinedEmployee(batchId, epf) {
+  return sequelize.transaction(async (transaction) => {
+    const { originalBatchId, isMo, rejoinedIsMo, isTransfer, isTcResign } = await employeeService.cancelRejoin(
+      epf,
+      batchId,
+      transaction,
+    );
+
+    const restoreExit = (target) => {
+      if (isTcResign) return { ...target, tcResigned: target.tcResigned + 1 };
+      const tile = isTransfer ? "transfer" : "resigned";
+      const key = (carder) => `${tile}${carder}`;
+      return {
+        ...target,
+        [key("MO")]: isMo ? target[key("MO")] + 1 : target[key("MO")],
+        [key("TMO")]: !isMo ? target[key("TMO")] + 1 : target[key("TMO")],
+      };
+    };
+    const removeCredit = (target) =>
+      isTcResign
+        ? { ...target, tcRejoined: Math.max(0, target.tcRejoined - 1) }
+        : {
+            ...target,
+            rejoinedMO: rejoinedIsMo ? Math.max(0, target.rejoinedMO - 1) : target.rejoinedMO,
+            rejoinedTMO: !rejoinedIsMo ? Math.max(0, target.rejoinedTMO - 1) : target.rejoinedTMO,
+          };
+
+    // The employee is back on their original entry's list by now, so the raw
+    // payload read here already includes them - only the counts need moving.
+    if (originalBatchId === batchId) {
+      const raw = await getRawPayloadForBatch(batchId, transaction);
+      return performUpdate(batchId, removeCredit(restoreExit(raw)), transaction);
+    }
+    const originalRaw = await getRawPayloadForBatch(originalBatchId, transaction);
+    await performUpdate(originalBatchId, restoreExit(originalRaw), transaction);
+    const raw = await getRawPayloadForBatch(batchId, transaction);
+    return performUpdate(batchId, removeCredit(raw), transaction);
+  });
+}
+
 /** Deletes every row belonging to a batch. */
 async function deleteDailyRecord(batchId) {
   return sequelize.transaction(async (transaction) => {
@@ -1135,6 +1185,7 @@ module.exports = {
   deleteDailyRecord,
   deleteResignedEmployee,
   rejoinResignedEmployee,
+  cancelRejoinedEmployee,
   listDailyRecords,
   findWeekForDate,
   getCadreTrend,

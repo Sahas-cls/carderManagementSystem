@@ -43,6 +43,12 @@ const rejoinResignedEmployee = asyncHandler(async (req, res) => {
   res.json({ success: true, data: record });
 });
 
+// PATCH /api/cadre/daily/:batchId/rejoined/:epf/cancel - :batchId is the entry the Rejoined credit is on
+const cancelRejoinedEmployee = asyncHandler(async (req, res) => {
+  const record = await dailyCadreService.cancelRejoinedEmployee(req.params.batchId, req.params.epf);
+  res.json({ success: true, data: record });
+});
+
 // GET /api/cadre/trend?year=&factoryId=
 const getCadreTrend = asyncHandler(async (req, res) => {
   const trend = await dailyCadreService.getCadreTrend(req.filters);
@@ -64,6 +70,7 @@ module.exports = {
   deleteDailyRecord,
   deleteResignedEmployee,
   rejoinResignedEmployee,
+  cancelRejoinedEmployee,
   getCadreTrend,
   getPreviousDailyRecord,
 };

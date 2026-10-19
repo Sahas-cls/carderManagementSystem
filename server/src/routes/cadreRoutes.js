@@ -9,6 +9,7 @@ const {
   deleteDailyRecord,
   deleteResignedEmployee,
   rejoinResignedEmployee,
+  cancelRejoinedEmployee,
   getCadreTrend,
   getPreviousDailyRecord,
 } = require("../controllers/dailyCadreController");
@@ -48,6 +49,7 @@ router.patch(
   validateRejoinBody,
   rejoinResignedEmployee,
 );
+router.patch("/daily/:batchId/rejoined/:epf/cancel", validateResignedEmployeeParams, cancelRejoinedEmployee);
 router.delete("/daily/:batchId", validateBatchIdParam, deleteDailyRecord);
 
 module.exports = router;

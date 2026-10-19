@@ -157,6 +157,27 @@ export default function CadreDetailsCard({
   const rejoinedTMO = parseInt(form.rejoinedTMO) || 0;
   const rejoinedEmployees = form.rejoinedEmployees || [];
 
+  // After Cancel Rejoin the server returns this entry's fresh record: the
+  // Rejoined credit is gone and, when the employee's original Resigned/Transfer
+  // row is on this same entry, that row and its count are back too.
+  const applyCancelledRejoin = (r) => {
+    const set = (field, value) => onChange(field, value);
+    set("resignedMO", String(r.rmo ?? 0));
+    set("resignedTMO", String(r.rtmo ?? 0));
+    set("transferMO", String(r.tfmo ?? 0));
+    set("transferTMO", String(r.tftmo ?? 0));
+    set("tcResigned", String(r.tcs ?? 0));
+    set("rejoinedMO", String(r.rjmo ?? 0));
+    set("rejoinedTMO", String(r.rjtmo ?? 0));
+    set("tcRejoined", String(r.tcrj ?? 0));
+    set("resignedEmployees", r.resignedEmployees || []);
+    set("transferEmployees", r.transferEmployees || []);
+    set("tcResignedEmployees", r.tcResignedEmployees || []);
+    set("rejoinedEmployees", r.rejoinedEmployees || []);
+    set("tcRejoinedEmployees", r.tcRejoinedEmployees || []);
+    onEmployeeDeleted?.();
+  };
+
   return (
     <>
       <ResignedEmployeesModal
@@ -197,6 +218,8 @@ export default function CadreDetailsCard({
         rjtmo={0}
         title="Training Center Rejoined Employees"
         trainingCenter
+        batchId={batchId}
+        onCancelled={applyCancelledRejoin}
       />
 
       <TcTransferEmployeesModal
@@ -297,6 +320,8 @@ export default function CadreDetailsCard({
         employees={rejoinedEmployees}
         rjmo={rejoinedMO}
         rjtmo={rejoinedTMO}
+        batchId={batchId}
+        onCancelled={applyCancelledRejoin}
       />
 
       <Card title="Cadre / Recruitment Details">

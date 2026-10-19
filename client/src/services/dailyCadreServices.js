@@ -59,6 +59,17 @@ export function rejoinResignedEmployee(batchId, epf, rejoinDate) {
 }
 
 /**
+ * Undoes a rejoin. `batchId` is the entry the Rejoined credit sits on; the
+ * employee goes back to Resigned/Transfer on their original entry (its count
+ * goes up by one) and this entry's Rejoined count goes down by one. A 409 if
+ * the original entry is gone or the employee has a later exit on file.
+ * Backs the Cancel Rejoin button in RejoinedEmployeesListModal.jsx.
+ */
+export function cancelRejoinedEmployee(batchId, epf) {
+  return api.patch(`/cadre/daily/${batchId}/rejoined/${encodeURIComponent(epf)}/cancel`);
+}
+
+/**
  * The most recent Daily Data Entry batch for a factory before the given
  * date (whatever date that was), or null if there isn't one. Backs the
  * Daily Data Entry form's prefill - see DailyEntryPage.jsx.

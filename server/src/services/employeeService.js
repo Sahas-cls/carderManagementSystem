@@ -473,6 +473,66 @@ async function rejoinEmployee(epf, batchId, transaction, { rejoinDate = null, re
 }
 
 /**
+ * Undoes a rejoin - the inverse of rejoinEmployee above. `batchId` is the entry
+ * the Rejoined credit was recorded on (exit.rejoinedBatchId), which is what the
+ * Rejoined list shows. The exit event goes back to standing: its rejoin fields
+ * are cleared and the employee's summary columns return to resigned/transferred
+ * (see refreshLegacyExit). Returns the event's original batchId plus the type
+ * info the caller needs to move the Resigned and Rejoined counts back.
+ * Throws 404 if the epf has no rejoin credited to this batch, and 409 if the
+ * exit can't be restored: its original entry is gone (batchId null), or the
+ * employee has a later exit on file that this one would collide with.
+ */
+async function cancelRejoin(epf, batchId, transaction) {
+  const credited = await findExits(
+    { rejoinedBatchId: batchId },
+    { transaction, employeeWhere: { epf } },
+  );
+  const [exit] = credited.sort(
+    (a, b) => String(b.dateOfRejoin || "").localeCompare(String(a.dateOfRejoin || "")) || b.id - a.id,
+  );
+  if (!exit) {
+    throw new ApiError(404, `Employee ${epf} has no rejoin recorded on record ${batchId}.`);
+  }
+  if (!exit.batchId) {
+    throw new ApiError(
+      409,
+      `The original ${isResignType(exit.type) ? "resignation" : "transfer"} entry of EPF ${epf} no longer exists, so this rejoin can't be cancelled.`,
+    );
+  }
+  const others = await EmployeeExit.findAll({
+    where: { employeeId: exit.employeeId, id: { [Op.ne]: exit.id } },
+    transaction,
+  });
+  const later = others.find(
+    (ev) =>
+      ev.dateOfExit > exit.dateOfExit ||
+      (!ev.rejoinedBatchId && (isResignType(ev.type) || ev.dateOfExit === exit.dateOfExit)),
+  );
+  if (later) {
+    throw new ApiError(
+      409,
+      `EPF ${epf} has a later ${isResignType(later.type) ? "resignation" : "transfer"} on file (${later.dateOfExit}). Remove that first, then cancel this rejoin.`,
+    );
+  }
+
+  const record = {
+    epf,
+    originalBatchId: exit.batchId,
+    rejoinedBatchId: exit.rejoinedBatchId,
+    isMo: exit.isMo,
+    rejoinedIsMo: exit.rejoinedIsMo,
+    isTransfer: exit.type === "transfer",
+    isTcResign: exit.type === "tc_resign",
+  };
+  const cleared = { dateOfRejoin: null, rejoinedBatchId: null, rejoinedIsMo: null };
+  await logExit("rejoin_cancelled", exit, transaction, cleared);
+  await exit.update(cleared, { transaction });
+  await refreshLegacyExit(exit.employeeId, transaction);
+  return record;
+}
+
+/**
  * Detaches every exit event tied to a batch (used when the daily entry
  * itself is deleted) - doesn't delete the employee or their history. The
  * events stay, with batchId cleared, so the exits remain on file as
@@ -1188,6 +1248,7 @@ module.exports = {
   unlinkBatch,
   listByBatchIds,
   listRejoinedByBatchIds,
+  cancelRejoin,
   getServiceLengthAnalysis,
   getReasonAnalysis,
   getCivilStatusAnalysis,
