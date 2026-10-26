@@ -1190,4 +1190,9 @@ module.exports = {
   findWeekForDate,
   getCadreTrend,
   getPreviousDailyRecord,
+  // Used by scripts/reconcile-resigned.js to re-derive an entry after its resigned counts change.
+  computeDerived,
+  rowsFor,
+  getRawPayloadForBatch,
+  CARDER_MODELS,
 };

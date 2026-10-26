@@ -15,7 +15,8 @@ const { where } = require("sequelize");
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+// Generous limit for Manage Employees' Upload Resigned (a workbook's rows as JSON).
+app.use(express.json({ limit: "5mb" }));
 app.use(morgan("dev"));
 
 app.get("/health", (req, res) => res.json({ success: true, message: "OK" }));

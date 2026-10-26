@@ -133,7 +133,34 @@ function validateEmployeeBody(req, res, next) {
   }
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Validates the Upload Resigned body: { factoryId, from, to, dayFirst?, apply?, fileName?, rows[] }. */
+function validateResignedImportBody(req, res, next) {
+  try {
+    const { from, to, rows } = req.body || {};
+    if (!ISO_DATE.test(String(from ?? "")) || !ISO_DATE.test(String(to ?? ""))) {
+      throw new ApiError(400, "from and to must be dates (YYYY-MM-DD).");
+    }
+    if (from > to) throw new ApiError(400, "from cannot be after to.");
+    if (!Array.isArray(rows)) throw new ApiError(400, "rows must be an array.");
+    req.importOptions = {
+      factoryId: parseRequiredId(req.body.factoryId, "factoryId"),
+      from,
+      to,
+      dayFirst: req.body.dayFirst === true,
+      apply: req.body.apply === true,
+      fileName: typeof req.body.fileName === "string" ? req.body.fileName : undefined,
+      rows,
+    };
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
+  validateResignedImportBody,
   validateYearFactoryQuery,
   validateIdParam,
   validateEmployeeListQuery,

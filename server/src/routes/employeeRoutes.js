@@ -12,12 +12,14 @@ const {
   createEmployee,
   updateEmployee,
   deleteEmployee,
+  importResignedEmployees,
 } = require("../controllers/employeeController");
 const {
   validateYearFactoryQuery,
   validateIdParam,
   validateEmployeeListQuery,
   validateEmployeeBody,
+  validateResignedImportBody,
 } = require("../validators/employeeValidators");
 const { requireAuth, requireRole } = require("../middleware/auth");
 
@@ -68,6 +70,7 @@ router.put(
 router.use(requireAuth, requireRole("Administrator"));
 
 router.post("/", validateEmployeeBody, createEmployee);
+router.post("/import-resigned", validateResignedImportBody, importResignedEmployees);
 router.delete("/:id", validateIdParam, deleteEmployee);
 
 module.exports = router;

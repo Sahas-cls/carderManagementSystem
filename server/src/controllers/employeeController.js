@@ -2,6 +2,7 @@
 
 const asyncHandler = require("../utils/asyncHandler");
 const employeeService = require("../services/employeeService");
+const employeeImportService = require("../services/employeeImportService");
 
 // GET /api/employees/service-length-analysis?year=&factoryId=
 const getServiceLengthAnalysis = asyncHandler(async (req, res) => {
@@ -78,7 +79,14 @@ const deleteEmployee = asyncHandler(async (req, res) => {
   res.json({ success: true, data: { id: req.params.id } });
 });
 
+// POST /api/employees/import-resigned (Manage Employees -> Upload Resigned) - preview unless apply: true
+const importResignedEmployees = asyncHandler(async (req, res) => {
+  const report = await employeeImportService.importResignedEmployees(req.importOptions, req.user);
+  res.json({ success: true, data: report });
+});
+
 module.exports = {
+  importResignedEmployees,
   getServiceLengthAnalysis,
   getReasonAnalysis,
   getCivilStatusAnalysis,

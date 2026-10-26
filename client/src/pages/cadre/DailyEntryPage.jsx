@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Swal from "sweetalert2";
 import Button from "../../components/ui/Button";
 import Notice from "../../components/ui/Notice";
@@ -147,31 +147,36 @@ export default function DailyEntryPage() {
   // their untouched default, so it never clobbers something the user already
   // typed, and never runs while editing a saved record (that already has its
   // own real values via recordToForm).
+  const prefilled = useRef({});
   useEffect(() => {
     if (isEditing || !form.factoryId || !form.date) return;
     let cancelled = false;
     getPreviousDailyRecord({ factoryId: form.factoryId, date: form.date })
-      .then((prev) => {
-        if (cancelled || !prev) return;
+      .then((res) => {
+        if (cancelled) return;
+        // api.js unwraps `data`, but a null `data` (no earlier entry) comes
+        // back as the whole { success, data: null } envelope - not a record.
+        const prev = res && res.date ? res : null;
+        const next = {
+          allocActualMO: prev ? String(prev.currentMO ?? 0) : "",
+          allocActualTMO: prev ? String(prev.currentTMO ?? 0) : "",
+          tcAllocated: prev ? (prev.tcActual ?? 0) : 0,
+        };
+        // Snapshot outside the updater: React may run updaters twice (Strict
+        // Mode), so they must not read or write the ref themselves.
+        const last = prefilled.current;
+        prefilled.current = next;
         setForm((f) => {
-          if (
-            f.allocActualMO !== "" &&
-            f.allocActualTMO !== "" &&
-            f.tcAllocated
-          )
-            return f;
-          return {
-            ...f,
-            allocActualMO:
-              f.allocActualMO === ""
-                ? String(prev.currentMO ?? 0)
-                : f.allocActualMO,
-            allocActualTMO:
-              f.allocActualTMO === ""
-                ? String(prev.currentTMO ?? 0)
-                : f.allocActualTMO,
-            tcAllocated: f.tcAllocated ? f.tcAllocated : (prev.tcActual ?? 0),
-          };
+          const updated = { ...f };
+          for (const field of Object.keys(next)) {
+            // Untouched = still blank/zero, or still the value this prefill put
+            // there for the previous factory/date - so switching factory
+            // refreshes it, while anything the user typed is left alone.
+            const untouched =
+              !f[field] || f[field] === last[field];
+            if (untouched) updated[field] = next[field];
+          }
+          return updated;
         });
       })
       .catch(() => {

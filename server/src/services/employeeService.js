@@ -1241,6 +1241,8 @@ async function deleteEmployeeRecord(id) {
 }
 
 module.exports = {
+  refreshLegacyExit,
+  destroyExitsLogged,
   syncResignedEmployees,
   deleteResignedEmployee,
   findLinkedEmployee,

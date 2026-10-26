@@ -96,3 +96,12 @@ export function editEmployee(id, employee) {
 export function deleteEmployee(id) {
   return api.delete(`/employees/${id}`);
 }
+
+/**
+ * Manage Employees' Upload Resigned: `rows` from readResignedWorkbook
+ * (utils/excelImport.js). Previews by default - nothing is saved unless
+ * `apply` is true. Resolves to the import report.
+ */
+export function importResignedEmployees({ factoryId, from, to, dayFirst, apply, fileName, rows }) {
+  return api.post("/employees/import-resigned", { factoryId, from, to, dayFirst, apply, fileName, rows });
+}

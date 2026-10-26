@@ -99,3 +99,8 @@ Desktop.ini
 *.swp
 *.swo
 *.bak
+
+# One-off resigned-employee data-load scripts (local only)
+server/scripts/import-resigned.js
+server/scripts/link-imported-exits.js
+server/scripts/reconcile-resigned.js

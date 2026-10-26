@@ -20,6 +20,7 @@ import {
 } from "../../services/employeeServices";
 import { ALLOW_USER_EMPLOYEE_EDITING } from "../../config/featureFlags";
 import { exportEmployeesByFactory } from "../../utils/excelExport";
+import ResignedUploadModal from "./components/ResignedUploadModal";
 
 const EMPTY_FORM = {
   epf: "",
@@ -89,6 +90,10 @@ const ManageEmployeesPage = () => {
   // Everyone else (Administrator/SuperUser) gets a Factory filter instead -
   // "" means every factory.
   const canFilterByFactory = role !== "User";
+  // Bulk upload of a factory's resigned-employee workbook - Administrator only
+  // (the server enforces the same).
+  const canUploadResigned = role === "Administrator";
+  const [showUpload, setShowUpload] = useState(false);
   const [factories, setFactories] = useState([]);
   const [factoryFilter, setFactoryFilter] = useState("");
   const [employees, setEmployees] = useState([]);
@@ -754,6 +759,17 @@ const ManageEmployeesPage = () => {
               >
                 {exporting ? "Exporting..." : "Export by Factory"}
               </button>
+              {canUploadResigned && (
+                <button
+                  type="button"
+                  onClick={() => setShowUpload(true)}
+                  disabled={!factories.length}
+                  title="Import a factory's resigned-employee Excel file"
+                  className="rounded border border-white/40 bg-white/10 px-2 py-1 text-white text-xs hover:bg-white/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Upload Resigned
+                </button>
+              )}
               <CountBadge>
                 {total} employee{total === 1 ? "" : "s"}
               </CountBadge>
@@ -892,6 +908,14 @@ const ManageEmployeesPage = () => {
           </div>
         </Card>
       </div>
+
+      {showUpload && (
+        <ResignedUploadModal
+          factories={factories}
+          onClose={() => setShowUpload(false)}
+          onImported={refetch}
+        />
+      )}
     </div>
   );
 };
