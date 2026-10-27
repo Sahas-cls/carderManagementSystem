@@ -172,8 +172,7 @@ export default function DailyEntryPage() {
             // Untouched = still blank/zero, or still the value this prefill put
             // there for the previous factory/date - so switching factory
             // refreshes it, while anything the user typed is left alone.
-            const untouched =
-              !f[field] || f[field] === last[field];
+            const untouched = !f[field] || f[field] === last[field];
             if (untouched) updated[field] = next[field];
           }
           return updated;
@@ -445,11 +444,11 @@ export default function DailyEntryPage() {
             </Button>
           </>
         )}
-        {canFilterFactory && (
+        {/* {canFilterFactory && (
           <Button onClick={() => setShowUnlinked(true)}>
             Unlinked Employees
           </Button>
-        )}
+        )} */}
         <Button variant="teal" onClick={handleDownload}>
           Download Excel
         </Button>

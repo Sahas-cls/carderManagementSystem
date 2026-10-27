@@ -160,10 +160,10 @@ export default function DashboardPage() {
   );
 
   // Same year/scope, grouped by resignation reason - mirrors the
-  // "LTO_ Analysis_Reason" sheet. Only the top few reasons are named (see
-  // employeeService.getReasonAnalysis); "Other" gets a dedicated neutral
-  // color rather than the next categorical hue, since it isn't a stable
-  // category on its own.
+  // "LTO_ Analysis_Reason" sheet. Every reason is listed (see
+  // employeeService.getReasonAnalysis); "Not Recorded" gets a dedicated
+  // neutral color, and reasons past the palette get generated hues so no two
+  // slices share a color.
   const { analysis: reasonAnalysis } = useReasonAnalysis({
     factoryId: effectiveFactoryId,
     year: selectedYear,
@@ -174,9 +174,11 @@ export default function DashboardPage() {
         label: r.label,
         value: r.count,
         color:
-          r.label === "Other"
+          r.label === "Not Recorded"
             ? OTHER_COLOR
-            : CATEGORICAL_COLORS[i % CATEGORICAL_COLORS.length],
+            : i < CATEGORICAL_COLORS.length
+              ? CATEGORICAL_COLORS[i]
+              : `hsl(${(i * 47) % 360} 55% 48%)`,
       })),
     [reasonAnalysis],
   );
@@ -201,8 +203,8 @@ export default function DashboardPage() {
     [civilStatusAnalysis],
   );
 
-  // Same year/scope, grouped by section - top few named, the rest folded
-  // into "Other" (neutral color), same as reasonData above.
+  // Same year/scope, grouped by section - every section listed, with
+  // generated hues past the palette, same as reasonData above.
   const { analysis: sectionAnalysis } = useSectionAnalysis({
     factoryId: effectiveFactoryId,
     year: selectedYear,
@@ -213,9 +215,9 @@ export default function DashboardPage() {
         label: s.label,
         value: s.count,
         color:
-          s.label === "Other"
-            ? OTHER_COLOR
-            : CATEGORICAL_COLORS[i % CATEGORICAL_COLORS.length],
+          i < CATEGORICAL_COLORS.length
+            ? CATEGORICAL_COLORS[i]
+            : `hsl(${(i * 47) % 360} 55% 48%)`,
       })),
     [sectionAnalysis],
   );
@@ -664,7 +666,7 @@ export default function DashboardPage() {
           <>
             <Card title="LTO by Reason" variant="orange">
               <div className="p-4 pt-3">
-                <DonutChart data={reasonData} centerLabel="Resigned" />
+                <DonutChart data={reasonData} centerLabel="Resigned" compact />
               </div>
             </Card>
             <Card title="LTO by Civil Status" variant="teal">
@@ -674,7 +676,7 @@ export default function DashboardPage() {
             </Card>
             <Card title="LTO by Section" variant="navy">
               <div className="p-4 pt-3">
-                <DonutChart data={sectionData} centerLabel="Resigned" />
+                <DonutChart data={sectionData} centerLabel="Resigned" compact />
               </div>
             </Card>
             <Card title="LTO by Age" variant="purple">

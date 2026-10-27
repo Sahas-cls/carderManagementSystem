@@ -27,7 +27,7 @@ function arcPath(cx, cy, r, startDeg, endDeg) {
  * category without losing the whole-picture total, which comes back on
  * mouse-leave.
  */
-export default function DonutChart({ data, centerLabel }) {
+export default function DonutChart({ data, centerLabel, compact = false }) {
   const [hoverLabel, setHoverLabel] = useState(null);
   const total = data.reduce((sum, d) => sum + d.value, 0);
 
@@ -139,11 +139,13 @@ export default function DonutChart({ data, centerLabel }) {
         )}
       </svg>
 
-      <div className="flex flex-col gap-2 text-[11.5px]">
+      <div
+        className={`flex flex-col ${compact ? "gap-0.5 text-[10px]" : "gap-2 text-[11.5px]"}`}
+      >
         {segments.map((s) => (
           <div
             key={s.label}
-            className={`flex items-center gap-2 rounded-md px-1.5 py-0.5 -mx-1.5 cursor-pointer transition-colors ${
+            className={`flex items-center gap-2 rounded-md px-1.5 ${compact ? "py-0" : "py-0.5"} -mx-1.5 cursor-pointer transition-colors ${
               hoverLabel === s.label ? "bg-app-bg" : ""
             }`}
             onMouseEnter={() => setHoverLabel(s.label)}
