@@ -486,6 +486,134 @@ async function createDailyRecord(payload) {
 }
 
 /**
+ * Carries a change in one entry's closing balance forward through the factory's
+ * later Daily Data Entries, and re-derives what depends on it (Shortage, Net,
+ * Allocated_Current, Present, TC Actual Allocated / Present). Without this,
+ * editing or deleting an earlier entry leaves every later entry on the old numbers.
+ *
+ * mode "shift" (default): each later entry keeps its own typed Allocated_Actual
+ * and moves it by how far the previous day's Allocated_Current moved, so a
+ * deliberate correction (the real headcount typed in) survives. `before` is the
+ * edited/deleted entry's closingOf() taken ahead of the change; later entries'
+ * own old balances are tracked as the walk goes.
+ * mode "reset": Allocated_Actual is forced to the previous day's
+ * Allocated_Current (scripts/rechain-allocated.js, a deliberate repair).
+ *
+ * Entries are walked in (date, createdAt) order. Where to start: just after
+ * `afterBatchId`, or at the first entry dated `fromDate` or later. Entries
+ * before that point are left alone and only supply the opening balance. As in
+ * getPreviousDailyRecord, an entry's predecessor is the last entry of the
+ * nearest earlier DATE (entries sharing a date don't chain to each other).
+ * Returns what changed: [{ batchId, date, before, after }].
+ */
+async function rechainFactory(
+  factoryId,
+  { afterBatchId = null, fromDate = null, before = null, mode = "shift" } = {},
+  transaction,
+) {
+  const entries = await PlannedCarder.findAll({
+    where: { factoryId },
+    order: [
+      ["date", "ASC"],
+      ["createdAt", "ASC"],
+    ],
+    transaction,
+  });
+  const start = afterBatchId
+    ? entries.findIndex((e) => e.batchId === afterBatchId) + 1
+    : entries.findIndex((e) => e.date >= fromDate);
+  if (start < 0) return [];
+
+  const changes = [];
+  // batchId -> { before, after } of { cmo, ctmo, tca } for entries walked so far.
+  const moved = new Map();
+  let lastOfEarlierDates = null; // last entry on a date before the one being walked
+  let lastOfThisDate = null;
+  let walkingDate = null;
+  let openingPredId = null;
+  for (let i = 0; i < entries.length; i += 1) {
+    const entry = entries[i];
+    if (entry.date !== walkingDate) {
+      if (lastOfThisDate) lastOfEarlierDates = lastOfThisDate;
+      walkingDate = entry.date;
+    }
+    lastOfThisDate = entry;
+    if (i < start || !lastOfEarlierDates) continue;
+
+    const { batchId } = entry;
+    const prevBatchId = lastOfEarlierDates.batchId;
+    if (openingPredId === null) {
+      // `before` is the edited/deleted entry's figures from before the change; it only
+      // describes the predecessor when that really is the edited entry (or the entry
+      // is gone, so afterBatchId is null).
+      openingPredId = prevBatchId;
+      if (afterBatchId && prevBatchId !== afterBatchId) before = null;
+    }
+    const [prevCurrent, prevTc, current, tc, budget, raw] = await Promise.all([
+      AllocatedCurrentCarder.findOne({ where: { batchId: prevBatchId }, transaction }),
+      TrainingCenter.findOne({ where: { batchId: prevBatchId }, transaction }),
+      AllocatedCurrentCarder.findOne({ where: { batchId }, transaction }),
+      TrainingCenter.findOne({ where: { batchId }, transaction }),
+      entry.budgetId ? Budget.findByPk(entry.budgetId, { paranoid: false, transaction }) : null,
+      getRawPayloadForBatch(batchId, transaction),
+    ]);
+    const prevNow = { cmo: prevCurrent?.MO ?? 0, ctmo: prevCurrent?.TMO ?? 0, tca: prevTc?.actualAllocated ?? 0 };
+
+    let amo;
+    let atmo;
+    let tcAllocated;
+    if (mode === "reset") {
+      // Opening balance = the previous day's closing balance, whatever was typed.
+      amo = prevNow.cmo;
+      atmo = prevNow.ctmo;
+      tcAllocated = prevNow.tca;
+    } else {
+      // Keep this entry's own typed adjustment; only carry forward how far the
+      // previous day's closing balance moved.
+      const prevWas = moved.get(prevBatchId)?.before ?? (prevBatchId === openingPredId ? before : null) ?? prevNow;
+      amo = raw.allocActualMO + (prevNow.cmo - prevWas.cmo);
+      atmo = raw.allocActualTMO + (prevNow.ctmo - prevWas.ctmo);
+      tcAllocated = raw.tcAllocated + (prevNow.tca - prevWas.tca);
+    }
+
+    const was = { cmo: current?.MO ?? 0, ctmo: current?.TMO ?? 0, tca: tc?.actualAllocated ?? 0 };
+    const d = computeDerived({
+      ...raw,
+      allocActualMO: amo,
+      allocActualTMO: atmo,
+      tcAllocated,
+      plannedMO: budget?.moCount ?? 0,
+      plannedTMO: budget?.tmoCount ?? 0,
+    });
+    moved.set(batchId, { before: was, after: { cmo: d.currentMO, ctmo: d.currentTMO, tca: d.tcActual } });
+
+    const beforeShown = { amo: raw.allocActualMO, atmo: raw.allocActualTMO, cmo: was.cmo, ctmo: was.ctmo };
+    const after = { amo: d.amo, atmo: d.atmo, cmo: d.currentMO, ctmo: d.currentTMO };
+    if (JSON.stringify(beforeShown) === JSON.stringify(after) && tcAllocated === raw.tcAllocated) continue;
+
+    const rows = rowsFor(d);
+    for (const key of ["allocActual", "shortage", "net", "current", "present"]) {
+      await CARDER_MODELS[key].update(rows[key], { where: { batchId }, transaction });
+    }
+    await TrainingCenter.update(
+      { allocated: d.tcAllocated, actualAllocated: d.tcActual, present: d.tcPresent },
+      { where: { batchId }, transaction },
+    );
+    changes.push({ batchId, date: entry.date, before: beforeShown, after });
+  }
+  return changes;
+}
+
+/** An entry's closing figures, for rechainFactory's `before` (taken ahead of the change that triggers it). */
+async function closingOf(batchId, transaction) {
+  const [current, tc] = await Promise.all([
+    AllocatedCurrentCarder.findOne({ where: { batchId }, transaction }),
+    TrainingCenter.findOne({ where: { batchId }, transaction }),
+  ]);
+  return { cmo: current?.MO ?? 0, ctmo: current?.TMO ?? 0, tca: tc?.actualAllocated ?? 0 };
+}
+
+/**
  * The actual "update every row belonging to a batch" work, factored out of
  * updateDailyRecord so deleteResignedEmployee below can run it inside its
  * own transaction (alongside the employee hard-delete) instead of nesting a
@@ -493,6 +621,7 @@ async function createDailyRecord(payload) {
  */
 async function performUpdate(batchId, payload, transaction) {
   const { factoryId, date } = payload;
+  const closingBefore = await closingOf(batchId, transaction);
 
   const existing = await PlannedCarder.findOne({ where: { batchId }, transaction });
   if (!existing) {
@@ -547,6 +676,9 @@ async function performUpdate(batchId, payload, transaction) {
   // rejoinResignedEmployee), so it's read fresh here on every re-persist.
   const rejoinedEmployees = await employeeService.listRejoinedByBatchIds([batchId], transaction);
   const tcRejoinedEmployees = await employeeService.listRejoinedByBatchIds([batchId], transaction, { tc: true });
+
+  // Later entries open from this one's Allocated_Current - carry the change forward.
+  await rechainFactory(factoryId, { afterBatchId: batchId, before: closingBefore }, transaction);
 
   return buildFlatRecord({
     batchId,
@@ -677,6 +809,32 @@ async function deleteResignedEmployee(batchId, epf) {
 
     return performUpdate(batchId, payload, transaction);
   });
+}
+
+/**
+ * Moves a Daily Data Entry's stored Resigned MO/TMO counts by the given deltas
+ * (floored at 0) and re-derives Net / Allocated_Current / Present from them -
+ * for when a resignation is re-dated onto, or off, this entry from Manage
+ * Employees. Same re-derivation as scripts/reconcile-resigned.js.
+ */
+async function shiftResignedCounts(batchId, { mo = 0, tmo = 0, tc = 0 }, transaction) {
+  const closingBefore = await closingOf(batchId, transaction);
+  const raw = await getRawPayloadForBatch(batchId, transaction);
+  const d = computeDerived({
+    ...raw,
+    resignedMO: Math.max(0, raw.resignedMO + mo),
+    resignedTMO: Math.max(0, raw.resignedTMO + tmo),
+    tcResigned: Math.max(0, raw.tcResigned + tc),
+  });
+  const rows = rowsFor(d);
+  for (const key of ["resigned", "net", "current", "present"]) {
+    await CARDER_MODELS[key].update(rows[key], { where: { batchId }, transaction });
+  }
+  await TrainingCenter.update(
+    { resigned: d.tcResigned, actualAllocated: d.tcActual, present: d.tcPresent },
+    { where: { batchId }, transaction },
+  );
+  await rechainFactory(raw.factoryId, { afterBatchId: batchId, before: closingBefore }, transaction);
 }
 
 /**
@@ -845,12 +1003,15 @@ async function deleteDailyRecord(batchId) {
     if (!existing) {
       throw new ApiError(404, `Record ${batchId} not found.`);
     }
+    const closingBefore = await closingOf(batchId, transaction);
     for (const Model of Object.values(CARDER_MODELS)) {
       await Model.destroy({ where: { batchId }, transaction });
     }
     await PlannedCarder.destroy({ where: { batchId }, transaction });
     await TrainingCenter.destroy({ where: { batchId }, transaction });
     await employeeService.unlinkBatch(batchId, transaction);
+    // The entry after this one now follows the one before it.
+    await rechainFactory(existing.factoryId, { fromDate: existing.date, before: closingBefore }, transaction);
   });
 }
 
@@ -1194,5 +1355,7 @@ module.exports = {
   computeDerived,
   rowsFor,
   getRawPayloadForBatch,
+  shiftResignedCounts,
+  rechainFactory,
   CARDER_MODELS,
 };

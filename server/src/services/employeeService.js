@@ -743,19 +743,12 @@ async function getServiceLengthAnalysis({ factoryId, year } = {}) {
   };
 }
 
-// A pie with every configured resignation reason (14 in the source workbook)
-// is unreadable, and the data-viz guidance is explicit: never generate a hue
-// past the categorical palette's safe count - fold the rest into "Other"
-// instead. This caps how many reasons get their own named slice.
-const MAX_NAMED_REASONS = 7;
-
 /**
  * This year's resigned employees (optionally scoped to one factory), grouped
  * by resignation reason - backs the dashboard's "LTO by Reason" pie chart
  * (mirrors the "LTO_ Analysis_Reason" sheet in the HR Performance Analysis
- * report). Sorted by count descending; only the top MAX_NAMED_REASONS get
- * their own slice, the rest (plus any employee left without a reason) fold
- * into a single "Other" bucket.
+ * report). Sorted by count descending; every reason gets its own slice, and
+ * employees left without a reason are listed as "Not Recorded".
  */
 async function getReasonAnalysis({ factoryId, year, month } = {}) {
   const { year: y, employees } = await getResignedEmployeesForYear({
@@ -779,11 +772,8 @@ async function getReasonAnalysis({ factoryId, year, month } = {}) {
   });
 
   const sorted = [...counts.values()].sort((a, b) => b.count - a.count);
-  const named = sorted.slice(0, MAX_NAMED_REASONS);
-  const otherCount = sorted.slice(MAX_NAMED_REASONS).reduce((sum, r) => sum + r.count, 0) + unassigned;
-
-  const reasons = named.map((r) => ({ label: r.label, count: r.count }));
-  if (otherCount > 0) reasons.push({ label: "Other", count: otherCount });
+  const reasons = sorted.map((r) => ({ label: r.label, count: r.count }));
+  if (unassigned > 0) reasons.push({ label: "Not Recorded", count: unassigned });
 
   return {
     year: y,
@@ -828,9 +818,8 @@ async function getCivilStatusAnalysis({ factoryId, year, month } = {}) {
 
 /**
  * This year's resigned employees (optionally scoped to one factory), grouped
- * by section - backs the dashboard's "LTO by Section" donut chart. Same
- * top-MAX_NAMED_REASONS + "Other" folding as getReasonAnalysis above, for
- * the same readability reason.
+ * by section - backs the dashboard's "LTO by Section" donut chart. Every
+ * section gets its own slice, sorted by count descending.
  */
 async function getSectionAnalysis({ factoryId, year, month } = {}) {
   const { year: y, employees } = await getResignedEmployeesForYear({
@@ -849,9 +838,7 @@ async function getSectionAnalysis({ factoryId, year, month } = {}) {
   });
 
   const sorted = [...counts.values()].sort((a, b) => b.count - a.count);
-  const sections = sorted.slice(0, MAX_NAMED_REASONS).map((s) => ({ label: s.label, count: s.count }));
-  const otherCount = sorted.slice(MAX_NAMED_REASONS).reduce((sum, s) => sum + s.count, 0);
-  if (otherCount > 0) sections.push({ label: "Other", count: otherCount });
+  const sections = sorted.map((s) => ({ label: s.label, count: s.count }));
 
   return {
     year: y,
@@ -1084,7 +1071,12 @@ async function linkResignationToBatch(employee, fields, previous, transaction) {
     } else {
       // Date moved to a day with a different entry - move the exit with it.
       const moving = await EmployeeExit.findAll({
-        where: { employeeId: employee.id, batchId: previous.batchId, type: "resign", rejoinedBatchId: null },
+        where: {
+          employeeId: employee.id,
+          batchId: previous.batchId,
+          type: { [Op.in]: ["resign", "tc_resign"] },
+          rejoinedBatchId: null,
+        },
         transaction,
       });
       if (moving.length) {
@@ -1094,6 +1086,14 @@ async function linkResignationToBatch(employee, fields, previous, transaction) {
           { batchId, dateOfExit: fields.dateOfResign, resignationReasonId: fields.resignationReasonId ?? null },
           transaction,
         );
+        // The entries store their Resigned counts, so follow the exit across.
+        // Training Center resignations (tc_resign) have their own count and no MO/TMO split.
+        const tc = moving.filter((ev) => ev.type === "tc_resign").length;
+        const line = moving.filter((ev) => ev.type !== "tc_resign");
+        const mo = line.filter((ev) => ev.isMo).length;
+        const tmo = line.length - mo;
+        await shiftResignedCounts(previous.batchId, { mo: -mo, tmo: -tmo, tc: -tc }, transaction);
+        await shiftResignedCounts(batchId, { mo, tmo, tc }, transaction);
       }
     }
   } else {
@@ -1101,6 +1101,11 @@ async function linkResignationToBatch(employee, fields, previous, transaction) {
     await recordExit(employee.id, batchId, false, { ...fields, isMo: employee.isMo ?? null }, transaction);
   }
   await refreshLegacyExit(employee.id, transaction);
+}
+
+// dailyCadreService requires this module, so it's loaded on use.
+function shiftResignedCounts(...args) {
+  return require("./dailyCadreService").shiftResignedCounts(...args);
 }
 
 async function createEmployeeRecord(fields) {
